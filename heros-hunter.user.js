@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      3.7
+// @version      3.8
 // @description  Obchodzi respy wybranego herosa, pinguje Discord po znalezieniu
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
@@ -28,7 +28,7 @@
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '3.7';
+  const WERSJA = '3.8';
 
   /* =====================================================================
    *  1. CONFIG
@@ -53,6 +53,15 @@
     // Ile minut czekać po killu. Nadpisuje się wartością z okna "Minutnik",
     // gdy bot faktycznie kogoś zabije i panel się wypełni.
     RESPAWN_MIN: 120,
+
+    // Logowanie do gry po wylogowaniu. Wczesniej tick wolal
+    // GAME.login() co sekunde i bez limitu, a ten klikal w pierwsza
+    // napotkana karte postaci - konto z dwiema postaciami dostawalo
+    // przelogowywanie raz na sekunde (zgłoszone 06.10: "przelogowuje mi
+    // z innej postaci na ta"). Teraz: odstep miedzy probami, limit prob
+    // i wybor postaci po swiecie (patrz GAME.login).
+    LOGIN_COOLDOWN_MS: 20000,
+    LOGIN_TRIES: 4,
 
     // Po odswiezeniu strony bot wznawia prace sam, jesli przed
     // odswiezeniem byl zatrzymany na pozostawionym stanie (GO, SCAN,
@@ -1215,17 +1224,73 @@
       return { ok: true, tpl: t, before: przed, after: -2, powod: 'dwuklik wysłany' };
     },
 
+    // Logowanie do gry.
+    //
+    // 1) KTORA POSTAC. Konto moze miec kilka postaci na roznych
+    //    swiatach, a klik w pierwsza karte loguje wta z innego swiatu.
+    //    Zmierzone 06.10: "przelogowuje mi z innej postaci na ta".
+    //    Karta postaci w DOM to `.charc` z atrybutami `data-world`
+    //    i `data-nick` - wybrana po swiecie, a przy kilku na tym
+    //    samym swiecie po nicku (zapisywanym przy kazdej sesji).
+    //
+    // 2) KTORY PRZYCISK. Wcześniejsza lista selektorow
+    //    (.character-item, .char-login, .login-btn, #login-btn)
+    //    NIE ISTNIEJE w grze - sprawdzone na stronie wyboru postaci
+    //    06.10: wszystkie cztery daly 0 elementow, wiec login()
+    //    nigdy nie klikal i wracal false.
+    //
+    // Zwraca {ok, kto} zamiast true/false, bo chcemy w logu widziec,
+    // w co kliknelysmy.
     login() {
+      const swiat = this.world();
+      const nick = String((STORE.data.nick || '')).toLowerCase();
+      let karty = [];
+      try {
+        karty = Array.prototype.slice.call(
+          document.querySelectorAll('.charc, .character-item, .relogger__one-character'));
+      } catch (e) { karty = []; }
+
+      const opis = function (k) {
+        const n = k.getAttribute && k.getAttribute('data-nick');
+        return (n ? n : (k.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40));
+      };
+      const wSwiecie = function (k) {
+        const w = (k.getAttribute && k.getAttribute('data-world') || '').toLowerCase();
+        if (w) return w === swiat;
+        return String(k.textContent || '').toLowerCase().indexOf(swiat) >= 0;
+      };
+
+      let wybrana = null;
+      for (let i = 0; i < karty.length; i++) {
+        if (!wSwiecie(karty[i])) continue;
+        const n = (karty[i].getAttribute && karty[i].getAttribute('data-nick') || '').toLowerCase();
+        if (nick && n && n !== nick) continue;
+        wybrana = karty[i];
+        break;
+      }
+      if (!wybrana) {
+        for (let i = 0; i < karty.length; i++) {
+          if (wSwiecie(karty[i])) { wybrana = karty[i]; break; }
+        }
+      }
+      if (!wybrana && karty.length === 1) wybrana = karty[0];
+      if (wybrana) {
+        wybrana.click();
+        return { ok: true, kto: opis(wybrana) + ' (' + swiat + ')' };
+      }
+
+      // Stara lista - na innych wersjach strony logowania przycisk
+      // moze byc zwykly button, a nie karta postaci.
       const sels = ['#login-btn', '.login-btn', 'button.login', '.char-login',
-        'input[value*="Zaloguj"]', '.character-item', '.relogger__one-character'];
+        'input[value*="Zaloguj"]'];
       for (let i = 0; i < sels.length; i++) {
         const el = document.querySelector(sels[i]);
         if (el && !el.disabled && String(el.className).indexOf('disabled') === -1) {
           el.click();
-          return true;
+          return { ok: true, kto: sels[i] };
         }
       }
-      return false;
+      return { ok: false, ileKart: karty.length, swiat: swiat };
     },
 
     logout() {
@@ -4193,8 +4258,31 @@ const CSS_HEROS_HUNTER = [
             }
           } else if (now >= until) {
             UI.set('map', 'ekran logowania');
-            UI.set('resp', 'loguję się do gry');
-            GAME.login();
+            // Bez odstepu i limitu prob bot klikal w logowanie co
+            // sekunde i gra przelogowywala postac miedzy soba. Teraz
+            // czeka CONFIG.LOGIN_COOLDOWN_MS miedzy probami i po
+            // CONFIG.LOGIN_TRIES probach przestaje - inaczej wciska
+            // przycisk w nieskonczonosc.
+            const odstep = CONFIG.LOGIN_COOLDOWN_MS - (now - (this.logOstatnio || 0));
+            if (odstep > 0) {
+              UI.set('resp', 'logowanie za ' + Math.ceil(odstep / 1000) + ' s');
+            } else if ((this.logProby || 0) >= CONFIG.LOGIN_TRIES) {
+              UI.set('resp', 'nie udało się zalogować ' + this.logProby
+                + ' razy - wejdź ręcznie');
+            } else {
+              this.logOstatnio = now;
+              this.logProby = (this.logProby || 0) + 1;
+              UI.set('resp', 'loguję się do gry (' + this.logProby + '/'
+                + CONFIG.LOGIN_TRIES + ')');
+              const r = GAME.login();
+              if (r && r.ok) {
+                LOG.info('Logowanie: kliknąłem ' + r.kto + '.');
+              } else {
+                LOG.warn('Nie znalazłem przycisku logowania na stronie ('
+                  + (r && r.ileKart !== undefined ? r.ileKart + ' kart postaci' : 'brak danych')
+                  + ') - wejdź ręcznie.');
+              }
+            }
           } else {
             // Czas logowania zapisany PRZED wylogowaniem - na ekranie
             // logowania nie da się go odczytać z gry. Bez flagi
@@ -4211,6 +4299,13 @@ const CSS_HEROS_HUNTER = [
           UI.bar2(0, null, '');
           return;
         }
+        // Zalogowani - zerujemy licznik prob, bo następne wylogowanie
+        // ma znowu cztery próby. Nick trzymamy, żeby login() wybrał tę
+        // samą postać na karcie wyboru (konto może mieć kilka).
+        this.logProby = 0;
+        this.logOstatnio = 0;
+        const nick = (GAME.ready() && Engine.hero && Engine.hero.d && Engine.hero.d.nick) || null;
+        if (nick && STORE.data.nick !== nick) STORE.set({ nick: nick });
 
         this.rememberGraph();
         const map = MAPS.current();
