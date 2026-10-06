@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      3.8
+// @version      3.9
 // @description  Obchodzi respy wybranego herosa, pinguje Discord po znalezieniu
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
@@ -28,7 +28,7 @@
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '3.8';
+  const WERSJA = '3.9';
 
   /* =====================================================================
    *  1. CONFIG
@@ -5547,6 +5547,21 @@ const CSS_HEROS_HUNTER = [
       + ' | timery ' + (p.timers && p.timers.length
         ? p.timers.map(function (t) { return t.minutes + ' min'; }).join(', ') : 'pusty')
       + ' | NPC ' + p.npcs + ' | bramy ' + (p.gateways ? p.gateways.length : 0));
+
+    // SUROWE - dlaczego gra nie jest widziana. `zalogowany nie` ma kilka
+    // mozliwych powodow (brak Engine, brak Engine.hero.d, za krotki
+    // browserToken, brak mapy) i wszystkie wygladaja tak samo z zewnatrz.
+    // Bez tej linii kazdy kolejny objaw to zgadywanie.
+    const E = window.Engine;
+    LOG.info('SUROWE: host ' + location.hostname
+      + ' | Engine ' + typeof E
+      + ' | browserToken ' + (E && typeof E.browserToken === 'string' ? E.browserToken.length + ' zn.' : 'brak')
+      + ' | hero ' + (E && E.hero ? 'jest' : 'BRAK')
+      + ' | hero.d ' + (E && E.hero && E.hero.d ? 'jest' : 'BRAK')
+      + ' | map ' + (E && E.map ? 'jest' : 'BRAK')
+      + ' | lock ' + (E && E.lock && E.lock.list ? JSON.stringify(E.lock.list) : 'brak')
+      + ' | dead ' + (E ? String(E.dead) : '-')
+      + ' | karty .charc ' + document.querySelectorAll('.charc').length);
     UI.build();
   }
 
