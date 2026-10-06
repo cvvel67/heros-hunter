@@ -1840,3 +1840,75 @@ wstrzyknieta recznie do testow). Z Tampermonkey zero - ani jednego logu
 bootu, ani bledu. W DOM jest jeden `#hh-panel`. Na tej stronie dziala wiec
 kopja wstrzyknieta, a nie skrypt z GitHuba - i tego drugiego nie uruchomiono
 w ogole.
+## 06.10 23:09 - dwa boty na jednej stronie + Start jako pusty strzal
+
+Zgloszenie: "i czemu stoi". Zrzut konsoli pokazal w jednej sesji dwa
+starty skryptu z DANYMI ROZNYMI:
+
+```
+[HH] Swiat: nerthus      <- pierwszy start
+[HH] Swiat: commons      <- drugi start, ten sam dokument
+```
+
+### Przyczyna 1: skrypt wstrzykiwal sie w iframe
+
+Margonem trzyma w sobie iframe `commons.margonem.pl` (potwierdzone
+rowniez menu kontekstow DevTools, gdzie widnieja dwa konteksty).
+`@match https://*.margonem.pl/*` pasowal do tego iframe, wiec skrypt
+startowal tam po raz drugi. Dwa panele, dwa logi, dwa watki co sekunde,
+dwa `BOT.state`. `Stop` trafial tylko w ten egzemplarz, ktory kliknal,
+a drugi po chwili startowal z powrotem.
+
+### Przyczyna 2: Start nie robil nic przy dzialajacej petli
+
+`start()` mialo `if (this.running) return;`, a galaz `!GAME.loggedIn()`
+z `nextRespawnAt = 0` pisala "brak zaplanowanego logowania - wcisnij
+Start". Wyjscia nie bylo: przycisk Start nie robil nic, a godziny nie
+bylo. Zmierzone: `WAIT -> Start. -> dalej WAIT`, `runs: 0`.
+
+### Przyczyna 3: stanu nie dawalo sie odczytac
+
+Tampermonkey MV3 trzyma kazdy skrypt w osobnym swiecie. `HH.probe()`
+z konsoli strony zwraca `ReferenceError: HH is not defined`, a po
+wybraniu kontekstu "Tampermonkey" w menu DevTools - to samo (dwa
+podejscia, 06.10 23:12). Swiad klamal zrodlo bledu: `at VM11341:1`,
+czyli kod siedzi w wewnetrznym VM poza zasiegiem obu kontekstow.
+Bez odczytu stanu kazda awaria kończy sie zgadywaniem.
+
+### Naprawa (3.6)
+
+- `if (window.top !== window.self) return;` - tylko gorne okno
+- `Start` przy dzialajacej petli kasuje plan i kaze sie zalogowac
+- `Start` przy pierwszym uruchomieniu i bez planu zaklada plan za 3 s
+- galaz bez planu sama planuje logowanie za 30 s, ale tylko gdy skrypt
+  WIE, ze ma cos do zrobienia (`runs > 0` albo znany `nextRespawnAt`
+  albo `homeReason`). Swiezy profil tego nie ma - tam Start mowi
+  "wcisnij Start, zeby wejsc do gry". Bez tego warunku skrypt logowalby
+  postac przy kazdym wejsciu na strone wyboru postaci, czyli wszedlby
+  do gry bez pytania
+- `mapLoadedAndAllInit` w `STANY_GRY` - flaga LADOWANIA mapy nie jest
+  blokada do rozwiazania przez gracza; bez tego kazde wejscie na mape
+  konczylo sie "Gra blokuje postac (mapLoadedAndAllInit)"
+- `probe()` wyciagniete z `window.HH` do osobnej funkcji + przycisk
+  **Stan** w panelu, ktory wypisuje trzy linie do DevLogu
+
+### Zmierzone po naprawie (wlasna karta, przegladarka testowa)
+
+| co | wynik |
+|---|---|
+| panele na stronie | 1 |
+| przyciski | Start/start, Stop/stop, Stan/stan |
+| swiat w panelu | `gefion` |
+| klik `Stan` | 3 linie `STAN:` w DevLogu |
+| `Start` na czystym magazynie | `running: true`, `nextRespawnAt` za 2 s |
+| drugi `Start` | nie pusty strzal - plan przesuniety na 1 s |
+
+### Znalezione przy okazji, dziala jak nalezy
+
+`Start` jest **celowo** nieaktywny, gdy wybrany heros nie ma trasy
+(`UI.powodStartu()`), a tytul mowi wprost "Ten heros nie ma trasy
+w CONFIG - bot nie ma gdzie isc". Z trzech bohaterow z pustym `route`
+(Zlodziej, Opetany Paladyn, Piekielny Kosciej) nie da sie startowac -
+to poprawne zachowanie, nie blad. Przy wyczyszczonym magazynie
+domyslnym bohaterem jest pierwszy z listy (Zlodziej), wiec Start
+wydaje sie zepsuty, dopoki nie wybierzesz Przewodnika.
