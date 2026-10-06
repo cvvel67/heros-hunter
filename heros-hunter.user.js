@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      3.4
+// @version      3.5
 // @description  Obchodzi respy wybranego herosa, pinguje Discord po znalezieniu
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
@@ -22,6 +22,19 @@
 
   const CONFIG = {
     HOME: { id: 1, name: 'Ithan' },
+
+    // Swiat, na ktorym skrypt pracuje. WAZNE: numery map i NPC sa TAKIE SAME
+    // na wszystkich swiatach Margonem (potwierdzone 06.10 przez gracza przy
+    // przejsciu gefion -> nerthus), wiec NIE ma sensu robic osobnych map
+    // per swiat - trasa Zlego Przewodnika zadziala na kazdym. To pole
+    // istnieje po to, zeby skrypt wiedzial, gdzie jest: pokazuje swiat
+    // w panelu i w logu, a przy roznicy respa albo czegos innego
+    // miedzy swiatami bedzie gdzie dopisac.
+    //
+    // 'auto' = wykryj z gry (Engine.worldConfig.getWorldName), a jak sie
+    // nie da, z adresu hosta (nerthus.margonem.pl -> nerthus).
+    // Wpisz tu nazwe na sztywno tylko wtedy, gdy chcesz zablokowac swiat.
+    WORLD: 'auto',
 
     // Ile minut czekać po killu. Nadpisuje się wartością z okna "Minutnik",
     // gdy bot faktycznie kogoś zabije i panel się wypełni.
@@ -428,6 +441,31 @@
 
   const GAME = {
     ready() { return typeof window.Engine !== 'undefined' && !!Engine; },
+
+    // Nazwa swiata. Kolejnosc zrodel:
+    //   1. Engine.worldConfig.getWorldName() - mowi wprost
+    //   2. host typu nerthus.margonem.pl -> "nerthus"
+    //   3. Engine.hero.d.mpath (np. http://nerthus.margonem.pl/)
+    // CONFIG.WORLD daje 'auto' albo nazwe na sztywno.
+    world() {
+      const lock = String(CONFIG.WORLD || 'auto').trim().toLowerCase();
+      if (lock && lock !== 'auto') return lock;
+      if (this.ready()) {
+        try {
+          const w = Engine.worldConfig && Engine.worldConfig.getWorldName
+            ? Engine.worldConfig.getWorldName() : null;
+          if (w) return String(w).trim().toLowerCase();
+        } catch (e) { /* ciche - idziemy do hosta */ }
+      }
+      const h = /^([a-z0-9-]+)\.margonem\.(?:pl|com)$/i.exec(location.hostname || '');
+      if (h && h[1] !== 'www' && h[1] !== 'forum') return h[1].toLowerCase();
+      if (this.ready()) {
+        const p = (Engine.hero && Engine.hero.d && Engine.hero.d.mpath) || '';
+        const m = /^https?:\/\/([a-z0-9-]+)\.margonem\./i.exec(String(p));
+        if (m) return m[1].toLowerCase();
+      }
+      return 'nieznany';
+    },
 
     send(packet) {
       if (typeof window._g !== 'function') return null;
@@ -1696,6 +1734,11 @@ const CSS_HEROS_HUNTER = [
   'margin-top:3px;}',
   '#hh-panel .hh-sub>i{font:400 11.5px/1.2 var(--hh-ui);color:var(--hh-fg-2);',
   'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+  // Świat - na końcu wiersza pod tytułem, przygaszony. Zero nowego
+  // miejsca w pionie: to flex, więc dokłada się obok nazwy herosa.
+  '#hh-panel .hh-sw{flex:0 0 auto;font:400 10px/1.2 var(--hh-ui);color:var(--hh-fg-3);',
+  'letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;',
+  'border-left:1px solid var(--hh-line);padding-left:6px;}',
   '#hh-panel .hh-av{display:flex;align-items:center;flex:0 0 auto;}',
   '#hh-panel .hh-av-head{width:24px;height:24px;border-radius:var(--hh-r-xs);',
   'display:block;flex:0 0 auto;background:none;border:0;padding:0;',
@@ -2408,6 +2451,9 @@ const CSS_HEROS_HUNTER = [
       sub.appendChild(this.headAv);
       this.heroSub = el('i', null, h ? h.nazwa : '?');
       sub.appendChild(this.heroSub);
+      // Świat - wypełnia go UI.swiat() w boot(), po build().
+      this.swiatEl = el('span', 'hh-sw');
+      sub.appendChild(this.swiatEl);
       title.appendChild(sub);
       head.appendChild(title);
 
@@ -3493,6 +3539,14 @@ const CSS_HEROS_HUNTER = [
 
     setFoot() {
       void arguments;
+    },
+
+    // Świat w nagłówku, obok nazwy heroesa. Wywoływane raz przy starcie
+    // (boot), PO build() - budowa panelu kasuje #hh-panel, więc ustawienie
+    // przed nią zniknęłoby bez śladu.
+    swiat(nazwa) {
+      if (!this.swiatEl) return;
+      this.swiatEl.textContent = nazwa || '';
     },
 
     staty(hero, killed) {
@@ -5247,6 +5301,14 @@ const CSS_HEROS_HUNTER = [
     UI.build();
     CHAT.watch();
 
+    // Świat. Numer map i NPC są takie same na każdym świecie, więc trasa
+    // nie zależy od tego pola - ale bez niego nie wiadomo, gdzie bot
+    // w ogóle jedzie, a wszystkie pomiary w NOTES.md dotyczą Gefion.
+    // Wypisujemy raz przy starcie, nie co tick.
+    const swiat = GAME.world();
+    LOG.info('Świat: ' + swiat + (swiat === 'nieznany' ? ' (nie udało się wykryć)' : ''));
+    UI.swiat(swiat);
+
     // Rozpoznanie zwojow z ekwipunku. Po build(), zeby pierwszy skan
     // mial juz panel do odswiezenia chipow. Wlasny interwal 20 s,
     // niezalezny od BOT.timer - dziala takze przy zatrzymanym bocie.
@@ -5361,6 +5423,7 @@ const CSS_HEROS_HUNTER = [
       probe: function () {
         return {
           url: location.href,
+          world: GAME.world(),
           loggedIn: GAME.loggedIn(),
           dead: GAME.dead(),
           state: BOT.state,
@@ -5378,7 +5441,7 @@ const CSS_HEROS_HUNTER = [
       },
     };
 
-    console.log('%cHeros Hunter v3%c - HH.start() / HH.probe() / Alt+H',
+    console.log('%cHeros Hunter v3%c - ' + GAME.world() + ' - HH.start() / HH.probe() / Alt+H',
       'color:#a78bfa;font-weight:bold', 'color:#888');
   }
 
