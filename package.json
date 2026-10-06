@@ -1,0 +1,14 @@
+{
+  "name": "heros-hunter",
+  "version": "3.3.0",
+  "private": true,
+  "description": "Userscript (Tampermonkey) do Margonem: obchodzi respy wybranego herosa, steruje walka z czatu klanowego, pinguje Discord",
+  "scripts": {
+    "build": "node _build.js",
+    "check": "node --check heros-hunter.user.js && node _verifyConfig.js && node _verifyCzat.js",
+    "verify": "node _verify.js"
+  },
+  "devDependencies": {
+    "terser": "^5.36.0"
+  }
+}
