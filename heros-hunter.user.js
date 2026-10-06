@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      3.6
+// @version      3.7
 // @description  Obchodzi respy wybranego herosa, pinguje Discord po znalezieniu
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
@@ -23,6 +23,12 @@
   // (zmierzone 06.10 23:09: w jednej konsoli "Świat: nerthus" i
   // "Świat: commons", a log pokazywał STOPPED -> Start. po 1 s).
   if (window.top !== window.self) return;
+
+  // Wersja skryptu w jednym miejscu. Pokazana w panelu, bo konsola
+  // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
+  // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
+  // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
+  const WERSJA = '3.7';
 
   /* =====================================================================
    *  1. CONFIG
@@ -493,31 +499,89 @@
       return !!(d && d.id);
     },
 
-    // Zycie nie jest w Engine.hero.d - gra trzyma je w DOM jako procent:
-    //   .hero-hp-progress-bar .inner[bar-percent="100"]
-    // Sprawdzone na zywo: poza walka hero.d.hp i hero.d.maxhp sa undefined,
-    // a Engine.dead zostaje true po odrodzeniu i klamal.
+    // Zycie. W DOM jest DWA paski HP i jeden z nich jest ściągawką:
+    //
+    //   1. `.hero-hp-progress-bar .inner[bar-percent]` oraz
+    //      `.hero-hp-progress-bar .value` - NIERENDEROWANY SZABLON.
+    //      Zmierzone 06.10: element ma 0x0 px, a `bar-percent` trzyma
+    //      "0" niezależnie od tego, czy postać żyje.
+    //   2. `.hp-indicator .blood[bar-percent]` + `.hpp .value` - PRAWDZIWY
+    //      pasek HP na dolnym pasku, szerokosc 98 px, z tekstem "0%".
+    //
+    // Wczesniejszy kod czytal wylacznie szablon, wiec `dead()` mowilo
+    // "niezyje" ZAWSZE. Przy wygladajacym na dzialajacy bocie skrypt
+    // wchodzil w galez smierci, w Ithanie planowal resp i robil
+    // GAME.logout(), czyli wylogowywal postac i czekal RESPAWN_MIN
+    // (domyslnie 120 minut) - "odpalam i nie idzie" bez zadnego logu
+    // bledu (zgłoszone 06.10, Nerthus).
+    //
+    // Kolejnosc zrodel jest istotna: najpierw PRAWDZIWY pasek, potem
+    // szablon. Do tego bierzemy tylko takie atrybuty, ktore gra naprawde
+    // rysuje (albo ktore maja tekst), bo `.hp-indicator .blood` tez ma
+    // wysokosc 0 px i sam w sobie o tym nie mowi.
+    // `rendered` znaczy "gra to naprawde rysuje". 0x0 px = szablon.
+    // Sprawdzamy wymiary ORAZ rodzica: `.hp-indicator .blood` ma
+    // wysokosc 0 px, ale jego rodzic `.hp-indicator` jest szeroki, wiec
+    // po samym `height` uznalibysmy prawdziwy pasek za martwy.
+    rendered(n) {
+      if (!n) return false;
+      const r = n.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) return true;
+      if (n.offsetParent !== null) return true;
+      const p = n.parentNode;
+      if (p && p.getBoundingClientRect) {
+        const pr = p.getBoundingClientRect();
+        if (pr.width > 0 && pr.height > 0) return true;
+      }
+      return false;
+    },
+
     hpPercent() {
       if (typeof document === 'undefined') return null;
-      let n = document.querySelector('.hero-hp-progress-bar .inner');
-      if (n) {
-        const f = parseFloat(n.getAttribute('bar-percent'));
-        if (!isNaN(f)) return f;
-      }
-      n = document.querySelector('.hero-hp-progress-bar .value');
-      if (n) {
+      const zTekstem = function (sel) {
+        let n;
+        try { n = document.querySelector(sel); } catch (e) { return null; }
+        if (!n || !this.rendered(n)) return null;
         const f = parseFloat(String(n.textContent || '').replace('%', ''));
-        if (!isNaN(f)) return f;
-      }
+        return isNaN(f) ? null : f;
+      }.bind(this);
+      const zAtrybutem = function (sel) {
+        let n;
+        try { n = document.querySelector(sel); } catch (e) { return null; }
+        if (!n || !this.rendered(n)) return null;
+        const f = parseFloat(n.getAttribute('bar-percent'));
+        return isNaN(f) ? null : f;
+      }.bind(this);
+
+      const prawdziwy = zTekstem('.hp-indicator .hpp .value');
+      if (prawdziwy !== null) return prawdziwy;
+      const krew = zAtrybutem('.hp-indicator .blood');
+      if (krew !== null) return krew;
+      const pasek = zAtrybutem('.hp-progress-bar .bar-percentage');
+      if (pasek !== null) return pasek;
+
+      // Szablon bierzemy ostatni i tylko wtedy, gdy jest rysowany - czyli
+      // praktycznie nigdy. Zostaje jako ostatnia deska ratunku, bo bez
+      // niego na ekranie logowania znikamy w "nie wiemy".
+      const zSzablonu = zAtrybutem('.hero-hp-progress-bar .inner');
+      if (zSzablonu !== null) return zSzablonu;
+      const tekstSzablonu = zTekstem('.hero-hp-progress-bar .value');
+      if (tekstSzablonu !== null) return tekstSzablonu;
       return null;
     },
 
     dead() {
       if (!this.ready()) return false;
       const p = this.hpPercent();
+      // `null` = nie wiemy (pasek sie nie renderuje, np. ekran logowania).
+      // Wtedy NIE wołamy tego gałęzi smierci: jej skutek (wylogowanie
+      // i 120 minut czekania) jest o wiele droższy niż brak wykrycia
+      // śmierci. Sprawdzamy wtedy Engine, a jak tam tez nie ma - mamy
+      // dwa niezależne odczyty, ze postac żyje.
       if (p !== null) return p <= 0;
       const d = Engine.hero && Engine.hero.d;
       if (d && d.hp !== undefined && d.maxhp !== undefined) return d.hp <= 0;
+      if (d && d.id) return false;
       return Engine.dead === true;
     },
 
@@ -2464,7 +2528,9 @@ const CSS_HEROS_HUNTER = [
       sub.appendChild(this.headAv);
       this.heroSub = el('i', null, h ? h.nazwa : '?');
       sub.appendChild(this.heroSub);
-      // Świat - wypełnia go UI.swiat() w boot(), po build().
+      // Świat i wersja w JEDNYM napisie - jeden element, zero zmian w
+      // layoutcie (dwa osobne dawałyby dwa pionowe kreski obok siebie).
+      // Wypełnia go UI.swiat() w boot(), po build().
       this.swiatEl = el('span', 'hh-sw');
       sub.appendChild(this.swiatEl);
       title.appendChild(sub);
@@ -3562,12 +3628,11 @@ const CSS_HEROS_HUNTER = [
       void arguments;
     },
 
-    // Świat w nagłówku, obok nazwy heroesa. Wywoływane raz przy starcie
-    // (boot), PO build() - budowa panelu kasuje #hh-panel, więc ustawienie
-    // przed nią zniknęłoby bez śladu.
+    // Świat po lewej, wersja po prawej - obie na jednej linijce pod tytułem.
+    // Świat wskazuje, gdzie bot jechał, wersja czy aktualizacja dotarła.
+    // Oba napisy są na szaro: to informacja, nie akcja.
     swiat(nazwa) {
-      if (!this.swiatEl) return;
-      this.swiatEl.textContent = nazwa || '';
+      if (this.swiatEl) this.swiatEl.textContent = (nazwa || '?') + ' · v' + WERSJA;
     },
 
     staty(hero, killed) {
@@ -5545,7 +5610,7 @@ const CSS_HEROS_HUNTER = [
       probe: probe,
     };
 
-    console.log('%cHeros Hunter v3%c - ' + GAME.world() + ' - HH.start() / HH.probe() / Alt+H',
+    console.log('%cHeros Hunter v' + WERSJA + '%c - ' + GAME.world() + ' - HH.start() / HH.probe() / Alt+H',
       'color:#a78bfa;font-weight:bold', 'color:#888');
   }
 
