@@ -1990,3 +1990,64 @@ To dwa rozne swiaty: skrypt z Tampermonkey zyje w izolowanym VM
 (`@grant GM_setValue`), a testowa kopia to zwykly kod strony z shimem
 `GM_*` na `localStorage`. Panele i log wygladaja tak samo, ale nie jest
 to ten sam kod - i dokladnie dlatego testy u mnie nie wystarcza.
+## 06.10 23:2x - "przelogowuje mi z innej postaci na ta"
+
+Zgloszenie: bot stoi, a gra przelogowuje postac miedzy dwiema.
+`Stan` (przycisk dodany w 3.6) dal:
+
+```
+STAN: swiat jaruna | mapa brak | kafel null | zalogowany nie | martwy nie
+      | blokada tak | stan WAIT | petla tak | stoi nie
+STAN: resp 6.10.2026, 23:22:28 | zgloszony nie | auto-log brak | runs 0
+STAN: NPC 0 | bramy 0
+```
+
+Skrypt nie widzial postaci: `Engine.hero` brak, mapy brak. Znaczy ze sesja
+nie jest w grze - bot siedzi na ekranie logowania.
+
+### Przyczyna 1: tick klikal logowanie co sekunde
+
+Galaz `now >= until` wolala `GAME.login()` **bez ograniczen**, a tick
+chodzi co 1 s. Przy koncie z dwiema postaciami gra dostawala
+przelogowywanie raz na sekunde - to dokladnie to, co zglosil gracz.
+
+### Przyczyna 2: zly selektor przycisku
+
+Zmierzone na stronie wyboru postaci: karta to
+
+```html
+<div class="charc" data-lvl="64" data-id="928739"
+     data-world="gefion" data-nick="Astralny Kruk"> ... </div>
+```
+
+a lista selektorow w `login()` to `.character-item, .char-login,
+.login-btn, #login-btn` - **wszystkie cztery daly 0 elementow**.
+Funkcja nigdy nie klikla wlaściwej rzeczy i zwracala `false`.
+
+Przy okazji: swiat z `getWorldName()` to `jaruna`, a gracz mowi
+"nerthus". Do poprawki - dokladna nazwa swiata z gry, nie zgadywanka.
+
+### Naprawa (3.8)
+
+- `CONFIG.LOGIN_COOLDOWN_MS = 20000`, `CONFIG.LOGIN_TRIES = 4`
+- `login()` wybiera karte po `data-world` biezacego swiatu, a przy kilku
+  na tym samym swiecie po `data-nick` (nick zapisywany przy kazdej sesji)
+- `login()` zwraca `{ok, kto}` i w logu lezy, w co kliknieto
+- licznik prob zeruje sie po zalogowaniu
+
+### Zmierzone
+
+Na karcie testowej (postac niewidoczna - karta `.charc` ma dzieci o
+szerokosci 0 px, wiec klik nie dziala, ale licznik jest widoczny):
+
+| okres | klikniec logowania |
+|---|---|
+| 2,5 minuty przy tyku 1 Hz | **4** (limit), potem cisza |
+| wczesniej | ~150 |
+
+### NIE zmierzone
+
+Czy klik w `.charc` faktycznie loguje do gry - na karce testowej karta
+jest niewidoczna (0 px), wiec klik nic nie robi. Jesli po 3.8 panel
+pokaze "nie udalo sie zalogowac 4 razy - wejdz recznie", trzeba kliknac
+karte postaci raz recznie; od tej chwili skrypt widzi postac i jedzie.
