@@ -1912,3 +1912,81 @@ w CONFIG - bot nie ma gdzie isc". Z trzech bohaterow z pustym `route`
 to poprawne zachowanie, nie blad. Przy wyczyszczonym magazynie
 domyslnym bohaterem jest pierwszy z listy (Zlodziej), wiec Start
 wydaje sie zepsuty, dopoki nie wybierzesz Przewodnika.
+## 06.10 - "odpalam i nie idzie": falszywa smierc z szablonu
+
+Zgloszenie: bot startuje i nie idzie. Na Gefion wygladalo to samo, wiec
+od poczatku szukalem zlej sciezki po stronie skryptu.
+
+### Zrodlo: dwa paski HP w DOM
+
+Zmierzone na zywo w DOM gry:
+
+```html
+<!-- 1. SZABLON - 0x0 px, bar-percent="0" ZAWSZE -->
+<div class="hero-hp-progress-bar hero-progress-bar-light-mode interface-element-progress-bar-1">
+  <div class="inner" bar-horizontal="true" bar-percent="0"></div>
+  <div class="value">0%</div>
+</div>
+
+<!-- 2. PRAWDA - .blood szerokosc 98 px, .hpp .value = "0%" -->
+<div class="hp-indicator">
+  <div class="blood-frame" style="display: block; ..."></div>
+  <div class="blood" bar-horizontal="false" bar-percent="0" style="background-position: -103px -9px;"></div>
+  <div class="hpp"><span class="value">0%</span></div>
+</div>
+```
+
+`hpPercent()` czytal wylacznie punkt 1. Ten element ma `bar-percent="0"`
+niezaleznie od tego, czy postac zyje - to nierysowany szablon, wiec
+`dead()` mowilo "niezyje" **za kazdym razem**.
+
+Wczesniej wygladalo to zgodnie z prawda, bo postac faktycznie lezala z
+0 HP (pomiar z 22:56). Dopiero przy zywym bocie okazalo sie, ze to
+odczyt szablonu, a nie postaci.
+
+### Skutek
+
+`dead()` = true -> galez smierci -> `goHome()` -> jestem w Ithanie ->
+planowanie respa -> **`GAME.logout()`** i `WAIT` na `CONFIG.RESPAWN_MIN`
+(domyslnie 120 minut). Bot wylogowywal postac i siadal na dwie godziny,
+bez jednego logu bledu. Przy naprawie z 06.10 23:xx (smiec w `tick()`)
+objaw wygladal identycznie - stąd dwa podobne zgloszenia.
+
+Ten sam odczyt psucil logowanie: na stronie wyboru postaci szablon
+tez mowi "0%", wiec galaz `dead() && loggedIn()` mogl wejsc w blad.
+
+### Naprawa (3.7)
+
+- `GAME.rendered(node)` - element uznany za warty odczytu tylko gdy gra
+  go naprawde rysuje. Sprawdzamy wymiary ORAZ rodzica, bo `.hp-indicator
+  .blood` ma wysokosc 0 px i sam o sobie o tym nie mowi
+- kolejnosc zrodel: `.hp-indicator .hpp .value` -> `.hp-indicator .blood`
+  -> `.hp-progress-bar .bar-percentage` -> szablon (ostatni i tylko
+  wtedy, gdy jest rysowany)
+- `dead()` przy `null` nie wchodzi w galez smierci. Jej skutek
+  (wylogowanie + 120 minut) jest o wiele drozszy niz brak wykrycia
+  smierci; przy zywej postaci `Engine.hero.d.id` wystarcza
+- `const WERSJA` + wersja w panelu (`swiat · v3.7`). Konsola mowila na
+  sztywno "Heros Hunter v3", wiec ze zrzutu nie dawalo sie odroznic
+  3.5 od 3.7. `_verifyConfig.js` pilnuje zgodnosci `WERSJA` z `@version`
+
+### Test na syntetycznym DOM (nie na zywej postaci - moja karta nie ma zyjacej)
+
+| uklad w DOM | odczyt | oczekiwane |
+|---|---|---|
+| widoczny `.hpp .value` = 85% + ukryty szablon 0% | **85** | 85 |
+| tylko ukryty szablon 0% (ekran logowania) | **null** | null |
+| widoczny `.hpp .value` = 0% (postac martwa) | **0** | 0 |
+
+Pierwsza wersja poprawki miala dziure: tekstowe odczyty (`textContent`)
+nie sprawdzaly renderowania i ukryty szablon dalej zwracal 0. Wykrylo
+to dopiero ten test - na zywej postaci wygladaloby git, bo tam prawdziwy
+pasek jest renderowany.
+
+### Różnica: skrypt w Tampermonkey vs wstrzyknieta kopia
+
+Zgłoszenie: "problem jest w skrypcie w tamperze, tam nic nie działa".
+To dwa rozne swiaty: skrypt z Tampermonkey zyje w izolowanym VM
+(`@grant GM_setValue`), a testowa kopia to zwykly kod strony z shimem
+`GM_*` na `localStorage`. Panele i log wygladaja tak samo, ale nie jest
+to ten sam kod - i dokladnie dlatego testy u mnie nie wystarcza.
