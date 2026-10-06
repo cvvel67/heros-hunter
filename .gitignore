@@ -1,0 +1,26 @@
+# Pliki robocze skryptu — nie wgrywaj ich do repo
+_inject.js
+_srv.js
+_prep.js
+_preview.js
+_patch.js
+_p.js
+_p2.js
+_refaktor-ui.patch.js
+_bridge.js
+_bridge.config.json
+_bridge.log
+_bridge.err.log
+_*.out
+_t.js
+_inject_view.txt
+*.webp
+*.tsv
+
+# Kopie i backupy
+heros-hunter.*.user.js
+*.przed-refaktorem.user.js
+*.BAK*.user.js
+
+# Notatki robocze — zostaw tylko to, co ma byc w repo
+# NOTES.md jest celowo wgrany: trzyma opis dzialania i znane problemy
