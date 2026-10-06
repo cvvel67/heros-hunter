@@ -22,5 +22,15 @@ heros-hunter.*.user.js
 *.przed-refaktorem.user.js
 *.BAK*.user.js
 
+# Wyjątek: dist/ musi zostać w repo — tam leży wersja minifikowana,
+# którą wskazuje @downloadURL. Bez tego wyjątku wzorzec wyżej
+# "heros-hunter.*.user.js" wyciąłby tez dist/heros-hunter.min.user.js.
+# Kolejność ma znaczenie: wyjątek musi być PO wzorcu, który kasuje.
+!dist/
+!dist/heros-hunter.min.user.js
+
+# Zależności do budowania (npm run build)
+node_modules/
+
 # Notatki robocze — zostaw tylko to, co ma byc w repo
 # NOTES.md jest celowo wgrany: trzyma opis dzialania i znane problemy
