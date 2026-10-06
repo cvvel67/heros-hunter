@@ -1776,3 +1776,67 @@ Potwierdzenie: bot musi trafic na heroesa i zobaczymy licznik.
 Warto zaznaczyc, ze ten sam wzorzec bledu powtarza sie w calym projekcie:
 `if (x) { fn(); return; }` gdzie `fn()` samo ma `if (stan) return;`.
 Dwa warunki "wychode z funkcji", ktore tworza cicho martwa galeaz.
+
+## 06.10 22:46 - bot stoi 13 minut po smierci, plakietka klamie WAIT
+
+Zgloszenie: "cos nie dziala i bot nie idzie". Zmierzone na zywo (`HH.probe()`):
+
+| co | wartosc |
+|---|---|
+| `loggedIn` | true |
+| `dead` | **true** (HP 0%) |
+| `locked` | false |
+| `state` | **WAIT** |
+| `map` / `cords` | Ithan / 46,28 |
+| `nextRespawnAt` | **0** |
+| `runs` | **0** |
+| `homeReason` | poSmierci |
+
+Ostatni wpis w logu 22:46:39 "Blokada zdjeta - lece dalej", potem 13 min ciszy.
+Strona zyje (wlasny `setInterval` 1 s odpalil sie 5/5), wyjatkow w logu brak.
+To nie zawieszenie - to nieosiegalny kod.
+
+### Przyczyna 1: `return` w galezi smierci
+
+```js
+if (GAME.dead()) {
+  ...
+  return;      // <-- PRZED maszyna stanow
+}
+```
+
+Ten `return` stoi **przed** `switch`, wiec dopoki postac miala 0 HP, tick
+konczyl sie w tym miejscu. `goHome()` nigdy nie wszedl - bot **nigdy** nie
+zaplanowal respa i nie wracil do gry.
+
+### Przyczyna 2: blokada nadpisala stan i go nie oddala
+
+22:43:14 smierc -> `HOME`. 22:46:35 blokada (captcha) -> `WAIT`. Po zdjeciu
+blokady skrypt wyczyscil tylko `lockKey`, a stan zostal `WAIT` na zawsze.
+Ten sam wzorzec co w `czekaj()`: wyjscie z funkcji tworzy cicho martwa gaz.
+
+### Falszywe "martwy" na ekranie logowania
+
+`.hero-hp-progress-bar .inner` ma `bar-percent="0"`, ale caly element jest
+**0x0 px** - to nierenderowany szablon, nie pasek HP (widoczny to
+`.hp-indicator .blood[bar-percent]`). `hpPercent()` czytal szablon, wiec
+po smierci `dead()` klamalo.
+
+### Naprawa (3.4)
+
+- `if (GAME.dead() && GAME.loggedIn())` - kolejnosc ma znaczenie: na ekranie
+  logowania postaci nie ma, wiec `dead()` nie jest miarodajne
+- koniec `return`, zamiast tego `goHome(MAPS.current())` - smierc prowadzi do
+  planowania respa, tego samego kodu co po killu
+- `lockState` zapamietuje stan przed blokada i przywraca go po zdjeciu;
+  prawdziwy WAIT (czekanie na resp) zostaje nietkniety
+- skrot "lece od nowa" w `goHome()` tylko dla **zywej** postaci
+  (`&& !GAME.dead()`), inaczej logowal co sekunde i nigdy nie wylogowal
+
+### Osobno: skrypt zainstalowany z GitHuba w ogole nie startuje
+
+602 wpisy w konsoli gry, **wszystkie** z `127.0.0.1:8137/_inject.js` (kopia
+wstrzyknieta recznie do testow). Z Tampermonkey zero - ani jednego logu
+bootu, ani bledu. W DOM jest jeden `#hh-panel`. Na tej stronie dziala wiec
+kopja wstrzyknieta, a nie skrypt z GitHuba - i tego drugiego nie uruchomiono
+w ogole.
