@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      4.0
+// @version      4.1
 // @description  Obchodzi respy wybranego herosa, pinguje Discord po znalezieniu
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
@@ -9,12 +9,53 @@
 // @match        https://*.margonem.pl/*
 // @match        http://margonem.pl/*
 // @match        http://*.margonem.pl/*
-// @grant        GM_setValue
-// @grant        GM_getValue
+// @grant        none
 // @run-at       document-idle
 // ==/UserScript==
 (function () {
   'use strict';
+
+  // ---------------------------------------------------------------
+  //  PAMIEĆ: GM_* albo localStorage
+  //
+  //  Dlaczego `@grant none`: Tampermonkey MV3 uruchamia skrypt w
+  //  piaskownicy (izolowanym świecie). Globalne obiekty STRONY -
+  //  a w nich trzyma cala gra `Engine` - nie sa w piaskownicy widoczne.
+  //  Zmierzone 06.10: w Tampermonkey `window.Engine` to `undefined`,
+  //  a w tym samym momencie wstrzykniety do swiata strony skrypt
+  //  czytal `Engine.hero.d.id = 928739`, `Engine.lock.list`, cala mape.
+  //  DOM jest wspoldzielony, globalne JS nie - i caly skrypt nie mial
+  //  czego czytac: `mapa brak, kafel null, NPC 0, zalogowany nie`.
+  //
+  //  Przy `@grant none` skrypt leci w swiecie strony: `window.Engine`
+  //  istnieje, a zamiast GM_* dajemy wlasny magazyn na localStorage
+  //  (to samo, co robil testowy shim - dlatego testy mialy zawsze
+  //  zielone światy, a instalacja z GitHuba nie).
+  // ---------------------------------------------------------------
+  const MAGAZYN = 'HH_MAGAZYN_v1';
+  if (typeof GM_getValue !== 'function') {
+    let cache = null;
+    const wczytaj = function () {
+      if (cache) return cache;
+      try { cache = JSON.parse(localStorage.getItem(MAGAZYN) || '{}'); } catch (e) { cache = {}; }
+      if (!cache || typeof cache !== 'object') cache = {};
+      return cache;
+    };
+    window.GM_getValue = function (k, domyslna) {
+      const m = wczytaj();
+      return Object.prototype.hasOwnProperty.call(m, k) ? m[k] : domyslna;
+    };
+    window.GM_setValue = function (k, v) {
+      const m = wczytaj();
+      m[k] = v;
+      try { localStorage.setItem(MAGAZYN, JSON.stringify(m)); } catch (e) { /* brak quota */ }
+    };
+    window.GM_deleteValue = function (k) {
+      const m = wczytaj();
+      delete m[k];
+      try { localStorage.setItem(MAGAZYN, JSON.stringify(m)); } catch (e) { /* brak quota */ }
+    };
+  }
 
   // Ramka musi miec gre. Margonem trzyma silnik w iframe
   // (commons.margonem.pl) - w oknie glownym `window.Engine` nie istnieje
@@ -38,7 +79,7 @@
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '4.0';
+  const WERSJA = '4.1';
 
   /* =====================================================================
    *  1. CONFIG
