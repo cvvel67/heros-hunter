@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      4.1
+// @version      4.2
 // @description  Obchodzi respy wybranego herosa, pinguje Discord po znalezieniu
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
@@ -9,11 +9,66 @@
 // @match        https://*.margonem.pl/*
 // @match        http://margonem.pl/*
 // @match        http://*.margonem.pl/*
-// @grant        none
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        unsafeWindow
 // @run-at       document-idle
 // ==/UserScript==
 (function () {
   'use strict';
+
+  // ---------------------------------------------------------------
+  //  SWIAT, W KTORYM ZYJE SKRYPT
+  //
+  //  Tampermonkey MV3 ma dwa tryby i wybor nie jest oczywisty:
+  //
+  //   * `@grant GM_setValue` bez `unsafeWindow` - skrypt w PIASKOWNICY.
+  //     Niewidoczny dla strony i dla innych skryptow, wiec adres
+  //     webhooka do nich nie dociera. ALE piaskownica nie widzi
+  //     globalnych obiektow STRONY, a gra trzyma wszystko w `Engine`
+  //     i `TIPS`. Zmierzone 06.10: w skrypcie `window.Engine` =
+  //     `undefined` i skrypt nie mial czego czytac - "mapa brak,
+  //     kafel null, NPC 0, zalogowany nie".
+  //
+  //   * `@grant none` - skrypt w SWIECIE STRONY. Widzi gre, ale strona
+  //     widzi tez skrypt: `window.HH.webhook()` oddaje adres Discorda,
+  //     a `window.GM_setValue` daje kazdemu dostep do magazynu.
+  //
+  //  Wybrany wariant trzeci: piaskownica + `@grant unsafeWindow`.
+  //  Skrypt zostaje schowany, a do silnika gry siegamy przez
+  //  `unsafeWindow` - jedyne oficjalne wyjscie z piaskownicy do swiata
+  //  strony.
+  //
+  //  `STRONA` = strona gry (unsafeWindow) albo biezace okno, gdy API
+  //  nie ma (uruchomienie pliku poza Tampermonkey, np. testowe
+  //  wstrzykniecie). `Engine` i `TIPS` sa proxy, bo w calym skrypcie
+  //  wystepuja jako zwykle globalne - inaczej trzeba by przepisac
+  //  setki miejsc.
+  // ---------------------------------------------------------------
+  const STRONA = (typeof unsafeWindow !== 'undefined' && unsafeWindow) ? unsafeWindow : window;
+
+  const Engine = new Proxy({}, {
+    get: function (t, k) {
+      const E = STRONA.Engine;
+      return E ? E[k] : undefined;
+    },
+    set: function (t, k, v) {
+      const E = STRONA.Engine;
+      if (E) E[k] = v;
+      return true;
+    },
+    has: function (t, k) {
+      const E = STRONA.Engine;
+      return !!E && k in E;
+    },
+  });
+
+  const TIPS = new Proxy({}, {
+    get: function (t, k) {
+      const T = STRONA.TIPS;
+      return T ? T[k] : undefined;
+    },
+  });
 
   // ---------------------------------------------------------------
   //  PAMIEĆ: GM_* albo localStorage
@@ -72,14 +127,14 @@
   // jest gra. Dlatego czekamy na Engine (boot() odpala budowanie), a nie
   // blokujemy ramke.
   function wRamceGra() {
-    return typeof window.Engine !== 'undefined' && !!window.Engine;
+    return !!STRONA.Engine;
   }
 
   // Wersja skryptu w jednym miejscu. Pokazana w panelu, bo konsola
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '4.1';
+  const WERSJA = '4.2';
 
   /* =====================================================================
    *  1. CONFIG
@@ -519,7 +574,7 @@
   const STANY_GRY = ['dead', 'battle', 'change_location', 'mapLoadedAndAllInit'];
 
   const GAME = {
-    ready() { return typeof window.Engine !== 'undefined' && !!Engine; },
+    ready() { return !!STRONA.Engine; },
 
     // Nazwa swiata. Kolejnosc zrodel:
     //   1. Engine.worldConfig.getWorldName() - mowi wprost
@@ -547,8 +602,8 @@
     },
 
     send(packet) {
-      if (typeof window._g !== 'function') return null;
-      try { return window._g(packet); } catch (e) { return null; }
+      if (typeof STRONA._g !== 'function') return null;
+      try { return STRONA._g(packet); } catch (e) { return null; }
     },
 
     // Engine istnieje takze na ekranie logowania, wiec sam nie wystarcza.
@@ -5604,7 +5659,7 @@ const CSS_HEROS_HUNTER = [
     // mozliwych powodow (brak Engine, brak Engine.hero.d, za krotki
     // browserToken, brak mapy) i wszystkie wygladaja tak samo z zewnatrz.
     // Bez tej linii kazdy kolejny objaw to zgadywanie.
-    const E = window.Engine;
+    const E = STRONA.Engine;
     LOG.info('SUROWE: host ' + location.hostname
       + ' | Engine ' + typeof E
       + ' | browserToken ' + (E && typeof E.browserToken === 'string' ? E.browserToken.length + ' zn.' : 'brak')
