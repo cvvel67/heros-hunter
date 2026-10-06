@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      3.3
+// @version      3.4
 // @description  Obchodzi respy wybranego herosa, pinguje Discord po znalezieniu
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
@@ -3907,7 +3907,14 @@ const CSS_HEROS_HUNTER = [
           if (!this.lockKey || this.lockKey !== co) {
             this.lockKey = co;
             LOG.warn('Gra blokuje postać (' + co + '). Rozwiąż i bot ruszy dalej.');
-            if (this.state !== 'WAIT') this.setState('WAIT');
+            // Zapamietujemy stan, ktory blokada przerwa, zeby odroczyc
+            // go po zdjeciu blokady. Tylko przy zmianie blokady i tylko
+            // jesli naprawde cos przerwali - przy prawdziwym WAIT
+            // (czekanie na resp) lockState zostaje puste.
+            if (this.state !== 'WAIT') {
+              this.lockState = this.state;
+              this.setState('WAIT');
+            }
             NOTIFY.send({
               title: 'Bot zablokowany',
               description: 'Gra wymaga: ' + co + '. Bot czeka.',
@@ -3919,9 +3926,24 @@ const CSS_HEROS_HUNTER = [
           UI.bar2(0, true);
           return;
         }
-        if (this.lockKey) { this.lockKey = null; LOG.ok('Blokada zdjęta - lecę dalej.'); }
+        if (this.lockKey) {
+          this.lockKey = null;
+          LOG.ok('Blokada zdjęta - lecę dalej.');
+          // Stan przed blokada musi wrocic. Wczesniej skrypt czyscil
+          // tylko lockKey i zostawial WAIT na plakietce - a stan byl
+          // jedynym powodem, dla ktorego maszyna stanow sie zatrzymala
+          // (zgloszone 06.10 22:46: blokada nadpisala HOME na WAIT,
+          // po zdjeciu blokady zostalo WAIT na zawsze).
+          // Warunek 'state === WAIT' chroni prawdziwy WAIT przed
+          // respem - tam lockState jest puste, wiec nic nie cofamy.
+          if (this.state === 'WAIT' && this.lockState) {
+            const wroc = this.lockState;
+            this.lockState = null;
+            this.setState(wroc);
+          }
+        }
 
-        if (GAME.dead()) {
+        if (GAME.dead() && GAME.loggedIn()) {
           // jeden raz na smierc - nie powtarzamy co tick
           if (!this.deathHandled) {
             this.deathHandled = true;
@@ -3936,6 +3958,25 @@ const CSS_HEROS_HUNTER = [
             this.setState('HOME');
           }
           this.homeAt = 0;
+          // UWAGA: dawniej bylo tu `return` i to zamalowalo wszystko.
+          // `return` stawalo PRZED maszyna stanow, wiec dopoki postac
+          // miala 0 HP, tick konczyl sie w tym miejscu - goHome() nigdy
+          // nie wszedl, wiec bot NIGDY nie zaplanowal respa i nie wracil
+          // do gry. Zmierzone 06.10 22:46-22:59: 13 minut ciszy w
+          // logu, `nextRespawnAt: 0`, `runs: 0`, bot stoi w Ithan.
+          //
+          // Teraz smierc prowadzi wprost do goHome() - tego samego
+          // kodu, ktory po killu heroesa planuje resp i wylogowuje.
+          // Po wylogowaniu `GAME.loggedIn()` jest juz false, wiec ten
+          // blok przestaje sie wykonywac i dalsza obsluge przejmuje
+          // gałąz '!GAME.loggedIn()' ponizej (logowanie o zaplanowanej
+          // godzinie). Ta kolejnosc jest istotna: na ekranie logowania
+          // `.hero-hp-progress-bar .inner` ma `bar-percent="0"` w
+          // szablonie, ktorego gra nie renderuje (0x0 px), wiec
+          // GAME.dead() klamal "martwy" i nigdy nie wypuszczal.
+          this.path = null;
+          if (this.state !== 'HOME') this.setState('HOME');
+          this.goHome(MAPS.current());
           return;
         }
         if (this.deathHandled) {
@@ -4736,7 +4777,14 @@ const CSS_HEROS_HUNTER = [
 
       if (MAPS.isHome(map)) {
         // kolo sie zrobilo - wracamy do szukania od razu, bez wylogowania
-        if (reason === 'koniecTrasy' || reason === 'poSmierci') {
+        //
+        // Wariant 'poSmierci' TYLKO dla zywej postaci. Smiertwa w Ithanie
+        // nie da sie 'obejsc od razu' - postac ma 0 HP i nie zrobi trasy.
+        // Bez tego warunku tick wchodzil w ten skrot w kolko: log
+        // 'lecę od nowa' co sekunde, nextRespawnAt zostawal 0, a bot
+        // nigdy nie wylogowal i nie wracal do gry (zgloszone 06.10 22:46).
+        // Martwa postac spada nizej i planuje powrot jak po killu.
+        if ((reason === 'koniecTrasy' || reason === 'poSmierci') && !GAME.dead()) {
           LOG.ok(reason === 'poSmierci'
             ? 'W Ithanie po śmierci - lecę od nowa od Zniszczonego Opactwa.'
             : 'Trasa obejdzie, jestem w Ithanie - lecę od nowa od razu.');
