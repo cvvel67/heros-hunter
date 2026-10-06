@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      3.9
+// @version      4.0
 // @description  Obchodzi respy wybranego herosa, pinguje Discord po znalezieniu
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
@@ -16,19 +16,29 @@
 (function () {
   'use strict';
 
-  // Tylko górne okno. Margonem trzyma w sobie iframe commons.margonem.pl
-  // i skrypt wstrzykiwał się również tam - dwa boty na jednej stronie,
-  // dwa panele, dwa stany. Przycisk Stop działał tylko na ten, który
-  // kliknąłeś, a drugi startował się z powrotem sekundę później
-  // (zmierzone 06.10 23:09: w jednej konsoli "Świat: nerthus" i
-  // "Świat: commons", a log pokazywał STOPPED -> Start. po 1 s).
-  if (window.top !== window.self) return;
+  // Ramka musi miec gre. Margonem trzyma silnik w iframe
+  // (commons.margonem.pl) - w oknie glownym `window.Engine` nie istnieje
+  // w ogle. Zmierzone 06.10 23:5x na nerthus.margonem.pl:
+  //   "Engine undefined | hero BRAK | map BRAK"
+  // a gra jest widoczna, wiec siedzi w innej ramce.
+  //
+  // WAZNE: w 3.7 wstawilem tu `window.top !== window.self`, co zamknelo
+  // skrypt w calej stronie - takze w tej ramce z gra. Od 3.7 zadna
+  // ramka nie miala Engine, a panel w oknie glownym byl bezduszny.
+  // To byla moja regresja, nie bug skryptu.
+  //
+  // Bot ma dzialac w kazdej ramce, ale panel i petle tylko tam, gdzie
+  // jest gra. Dlatego czekamy na Engine (boot() odpala budowanie), a nie
+  // blokujemy ramke.
+  function wRamceGra() {
+    return typeof window.Engine !== 'undefined' && !!window.Engine;
+  }
 
   // Wersja skryptu w jednym miejscu. Pokazana w panelu, bo konsola
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '3.9';
+  const WERSJA = '4.0';
 
   /* =====================================================================
    *  1. CONFIG
@@ -5495,6 +5505,7 @@ const CSS_HEROS_HUNTER = [
    * =================================================================== */
 
   let booted = false;
+  let zbudowane = false;
 
   // Stan wszystkiego, co trzeba wiedziec przy diagnozie. Osobna funkcja,
   // a nie metoda w window.HH, bo skrypt zyje w izolowanym swiecie
@@ -5571,6 +5582,30 @@ const CSS_HEROS_HUNTER = [
 
     STORE.load();
     MAPS.seedGraph();
+
+    // Czekamy na gre w tej ramce. Silnik siedzi w iframe
+    // commons.margonem.pl, a w oknie glownym go nie ma w ogle - ramka
+    // bez gry milczy (zero panelu, zero petli), wiec uzytkownik widzi
+    // jeden panel i jeden bot: ten w ramce z gra. Bez tego czekania
+    // skrypt budowal bezduszny panel w oknie glownym (Engine undefined)
+    // i wygladalo to jak "bot w ogole nie dziala".
+    if (!wRamceGra()) {
+      const t0 = Date.now();
+      (function czekajNaGre() {
+        if (wRamceGra()) { buduj(); return; }
+        if (Date.now() - t0 > 180000) return;   // 3 minuty i odpuszczamy
+        setTimeout(czekajNaGre, 400);
+      })();
+      return;
+    }
+
+    buduj();
+  }
+
+  // Wszystko co zyje - tylko w ramce, w ktorej jest gra.
+  function buduj() {
+    if (zbudowane) return;
+    zbudowane = true;
 
     // Wznowienie po odswiezeniu strony. Wczesniej boot() tylko
     // ODCZYTYWAŁ zapisany stan: `BOT.state = STORE.data.state`, przez co
