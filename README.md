@@ -5,9 +5,20 @@ powiadamia klan na czacie i Discorda, steruje walką z poziomu czatu.
 
 ## Instalacja
 
-1. Otwórz `heros-hunter.user.js` z tego repo
-2. Skopiuj całość do nowego skryptu w Tampermonkey
-3. Zapisz
+Otwórz w przeglądarce (przy zainstalowanym Tampermonkey) adres:
+
+```
+https://raw.githubusercontent.com/cvvel67/heros-hunter/main/dist/heros-hunter.min.user.js
+```
+
+Tampermonkey pokaże stronę instalacji — kliknij **Zainstaluj**. To wersja
+zminifikowana (91 KB, czytana maszynowo). Skrypt sam sprawdza się potem
+i aktualizuje z tego samego adresu, więc więcej nie trzeba nigdzie wgrywać.
+
+Jeśli wolisz wersję czytelną (5342 linie z komentarzami, do czytania
+i ewentualnych poprawek), wklej plik `heros-hunter.user.js` z tego repo
+do nowego skryptu w Tampermonkey i zapisz. Obie wersje wskazują
+`@updateURL` na siebie, więc każda aktualizuje się do tej samej formy.
 
 Skrypt sam wczytuje się na każdej stronie `*.margonem.pl`.
 Pierwsze uruchomienie wymaga kliknięcia **Start**. Przy kolejnych
@@ -15,6 +26,21 @@ wejściach wznawia pracę sam (opcja `CONFIG.AUTO_RESUME`).
 
 Webhook Discorda wpisuje się w panelu przy ikonie Discorda. W pliku jest
 celowo pusty — adres nie powinien siedzieć w kodzie.
+
+## Budowanie
+
+W repo są dwie wersje: `heros-hunter.user.js` (czytelna, źródło prawdy)
+i `dist/heros-hunter.min.user.js` (zminifikowana, instalowana).
+Zbuduj ją po każdej zmianie w źródle:
+
+```
+npm install     # raz, instaluje terser
+npm run build
+```
+
+`npm run check` uruchamia walidatory (`_verifyConfig.js`,
+`_verifyCzat.js`). Po zmianie podnieś `@version` w nagłówku — inaczej
+Tampermonkey uzna, że nowszej wersji nie ma, i nie zaktualizuje się.
 
 ## Co robi
 
