@@ -1,8 +1,10 @@
 // ==UserScript==
 // @name         Heros Hunter
-// @namespace    https://margonem.pl/heros-hunter
-// @version      3.2
+// @namespace    https://github.com/cvvel67/heros-hunter
+// @version      3.3
 // @description  Obchodzi respy wybranego herosa, pinguje Discord po znalezieniu
+// @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
+// @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @match        https://margonem.pl/*
 // @match        https://*.margonem.pl/*
 // @match        http://margonem.pl/*
