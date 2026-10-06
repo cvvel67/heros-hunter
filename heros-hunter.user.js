@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      3.5
+// @version      3.6
 // @description  Obchodzi respy wybranego herosa, pinguje Discord po znalezieniu
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
@@ -15,6 +15,14 @@
 // ==/UserScript==
 (function () {
   'use strict';
+
+  // Tylko górne okno. Margonem trzyma w sobie iframe commons.margonem.pl
+  // i skrypt wstrzykiwał się również tam - dwa boty na jednej stronie,
+  // dwa panele, dwa stany. Przycisk Stop działał tylko na ten, który
+  // kliknąłeś, a drugi startował się z powrotem sekundę później
+  // (zmierzone 06.10 23:09: w jednej konsoli "Świat: nerthus" i
+  // "Świat: commons", a log pokazywał STOPPED -> Start. po 1 s).
+  if (window.top !== window.self) return;
 
   /* =====================================================================
    *  1. CONFIG
@@ -437,7 +445,12 @@
   // Bez filtrowania 'change_location' bot wstrzymywal sie na kazdym
   // przejsciu brama i prosil gracza o rozwiazanie czegos, co samo sie
   // zdejmialo (widziane 00:10:42 na mapie 815).
-  const STANY_GRY = ['dead', 'battle', 'change_location'];
+  // 'mapLoadedAndAllInit' to flaga LADOWANIA mapy, nie blokada do
+  // rozwiązania przez gracza. Bez tego wpisu bot przy kazdym wejściu
+  // na mapę wchodził w WAIT i pisał "Gra blokuje postać (mapLoadedAndAllInit).
+  // Rozwiąż i bot ruszy dalej." - a blokada sama się znosiła sekundę
+  // później (zgłoszone 06.10 23:09).
+  const STANY_GRY = ['dead', 'battle', 'change_location', 'mapLoadedAndAllInit'];
 
   const GAME = {
     ready() { return typeof window.Engine !== 'undefined' && !!Engine; },
@@ -1911,7 +1924,7 @@ const CSS_HEROS_HUNTER = [
   /* ===================================================================== */
   '#hh-panel .hh-foot{flex:0 0 auto;padding:10px var(--hh-s3) var(--hh-s3);',
   'border-top:1px solid var(--hh-line);background:var(--hh-bg);}',
-  '#hh-panel .hh-btns{display:grid;grid-template-columns:1fr 1fr;',
+  '#hh-panel .hh-btns{display:grid;grid-template-columns:1fr 1fr auto;',
   'gap:var(--hh-s2);}',
   '#hh-panel .hh-hint{margin:var(--hh-s2) 0 0;font:400 10.5px/1.4 var(--hh-ui);',
   'color:var(--hh-warn-t);}',
@@ -2585,10 +2598,17 @@ const CSS_HEROS_HUNTER = [
       const btns = el('div', 'hh-btns');
       const bGo = el('button', 'hh-btn go', 'Start');
       const bStop = el('button', 'hh-btn stop', 'Stop');
+      const bStan = el('button', 'hh-btn stop', 'Stan');
       bGo.setAttribute('data-akcja', 'start');
       bStop.setAttribute('data-akcja', 'stop');
+      // "Stan" - wypisuje probe() do DevLogu. Skrypt zyje w izolowanym
+      // swiecie, wiec z konsoli strony nie da sie nic odczytac (patrz
+      // raport()), a stan jest pierwsza rzecza przy kazdej awarii.
+      bStan.setAttribute('data-akcja', 'stan');
+      bStan.title = 'Wypisz stan do DevLogu';
       btns.appendChild(bGo);
       btns.appendChild(bStop);
+      btns.appendChild(bStan);
       foot.appendChild(btns);
       // Referencje dla state(). Bez tych dwoch linii przyciski nigdy nie
       // byly wylaczane - state() sprawdza if (this.btnGo), wiec cicho
@@ -2636,6 +2656,7 @@ const CSS_HEROS_HUNTER = [
           const a = przycisk.getAttribute('data-akcja');
           if (a === 'start') BOT.start();
           else if (a === 'stop') BOT.stop(true);
+          else if (a === 'stan') raport();
           else if (a === 'webhook') self.setWindow();
           else if (a === 'help') self.helpWindow();
           else if (a === 'min') self.przełączMin();
@@ -3626,8 +3647,31 @@ const CSS_HEROS_HUNTER = [
     },
 
     start() {
-      if (this.running) return;
+      if (this.running) {
+        // Start przy JUŻ działającej pętli nie może być pustym strzałem.
+        // Wczesniej było tu `if (this.running) return;` i powstawała
+        // blokada bez wyjścia: gałąź '!loggedIn()' z nextRespawnAt = 0
+        // nie loguje się sama ("brak zaplanowanego logowania - wciśnij
+        // Start"), a Start nic nie robił. Efekt: bot w WAIT w nieskończoność
+        // (zmierzone 06.10 23:09: WAIT -> Start. -> dalej WAIT).
+        // Teraz Start kasuje plan i każe zalogować się natychmiast.
+        if (!GAME.loggedIn()) {
+          STORE.set({ autoLoginAt: 0, nextRespawnAt: Date.now() });
+          LOG.ok('Start przy działającym bocie - loguję się do gry od razu.');
+        } else {
+          LOG.ok('Start przy działającym bocie - bot już jedzie.');
+        }
+        return;
+      }
       this.running = true;
+      // Start to polecenie "wejdz do gry". Jak postac nie jest zalogowana
+      // i nie ma zaplanowanej godziny, zakladamy plan "za 3 s" - inaczej
+      // przycisk nic nie robi, bo tick wpada w "brak zaplanowanego
+      // logowania - wcisnij Start" i jest tam w nieskonczonosc
+      // (zmierzone 06.10 23:09).
+      if (!GAME.loggedIn() && !STORE.data.nextRespawnAt) {
+        STORE.set({ autoLoginAt: Date.now(), nextRespawnAt: Date.now() + 3000 });
+      }
       this.startedAt = Date.now();
       this.setState(GAME.loggedIn() ? 'SCAN' : 'WAIT');
       if (!this.timer) {
@@ -4057,7 +4101,31 @@ const CSS_HEROS_HUNTER = [
           const until = STORE.data.nextRespawnAt || 0;
           if (!until) {
             UI.set('map', 'ekran logowania');
-            UI.set('resp', 'brak zaplanowanego logowania - wciśnij Start');
+            // Bez zaplanowanej godziny bot stal w WAIT w nieskonczonosc,
+            // a Start przy dzialajacej petli nic nie robil - czyli brak
+            // wyjscia (zmierzone 06.10 23:09).
+            //
+            // Logujemy sie sami TYLKO wtedy, gdy znamy juz zadanie do
+            // wykonania: bot kiedyss zabil heroesa albo zginal i wylogowal
+            // sie, wiec ma dokonac powrotu (runs > 0, znany nextRespawnAt
+            // albo homeReason). Swiezy profil tego nie ma - wtedy panel
+            // mowi "wcisnij Start", a Start ponizej loguje od razu.
+            // Bez tego warunku skrypt logowalby postac przy kazdym
+            // wejsciu na strone wyboru postaci, czyli wszedlby do gry
+            // bez pytania.
+            const umie = Number(STORE.data.runs || 0) > 0
+              || !!STORE.data.nextRespawnAt || !!STORE.data.homeReason;
+            const ostatnio = Number(STORE.data.autoLoginAt || 0);
+            if (!umie) {
+              UI.set('resp', 'wciśnij Start, żeby wejść do gry');
+            } else if (now - ostatnio > 600000) {
+              STORE.set({ autoLoginAt: now, nextRespawnAt: now + 30000, respawnZgloszony: false });
+              UI.set('resp', 'loguję się za 30 s');
+              LOG.warn('Brak zaplanowanego logowania - sam loguję się za 30 s '
+                + '(Start przyspiesza, chcesz wejść wcześniej).');
+            } else {
+              UI.set('resp', 'logowanie w ciągu 10 min (już próbowałem)');
+            }
           } else if (now >= until) {
             UI.set('map', 'ekran logowania');
             UI.set('resp', 'loguję się do gry');
@@ -5268,6 +5336,60 @@ const CSS_HEROS_HUNTER = [
 
   let booted = false;
 
+  // Stan wszystkiego, co trzeba wiedziec przy diagnozie. Osobna funkcja,
+  // a nie metoda w window.HH, bo skrypt zyje w izolowanym swiecie
+  // Tampermonkey: `HH.probe()` z konsoli strony zwraca "HH is not defined"
+  // i nie pomaga nawet po wybraniu kontekstu "Tampermonkey" (zmierzone
+  // 06.10 23:12 - dwa podejscia, oba bez efektu). Stad przycisk "Stan"
+  // w panelu, ktory wypisuje to do DevLogu.
+  function probe() {
+    return {
+      url: location.href,
+      world: GAME.world(),
+      loggedIn: GAME.loggedIn(),
+      dead: GAME.dead(),
+      state: BOT.state,
+      running: BOT.running,
+      map: GAME.rawMap(),
+      cords: GAME.cords(),
+      idle: GAME.idle(),
+      locked: GAME.locked(),
+      blokady: GAME.lockList(),
+      npcs: GAME.npcs().length,
+      hero: BOT.findHero(),
+      heroSpawns: GAME.heroSpawns(),
+      gateways: GAME.gateways(),
+      timers: GAME.eliteTimers(),
+      zwoje: GAME.zwojDla ? MAPS.heroList().map(function (h) {
+        const t = GAME.zwojDla(h);
+        return h.key + '=' + (t ? t + 'x' + GAME.itemAmount(t) : 'brak');
+      }) : [],
+      store: STORE.data,
+    };
+  }
+
+  // Wpis do DevLogu - czytelny ze zrzutu ekranu, bez konsoli.
+  function raport() {
+    const p = probe();
+    const s = p.store || {};
+    const tak = (b) => (b ? 'tak' : 'nie');
+    const mapa = (p.map && p.map.name) ? p.map.name : (p.map ? '?' : 'brak');
+    LOG.info('STAN: świat ' + p.world + ' | mapa ' + mapa + ' | kafel ' + p.cords
+      + ' | zalogowany ' + tak(p.loggedIn) + ' | martwy ' + tak(p.dead)
+      + ' | blokada ' + tak(p.locked) + (p.blokady && p.blokady.length ? ' (' + p.blokady.join(', ') + ')' : '')
+      + ' | stan ' + p.state + ' | petla ' + tak(p.running) + ' | stoi ' + tak(p.idle));
+    LOG.info('STAN: resp ' + (s.nextRespawnAt ? new Date(s.nextRespawnAt).toLocaleString('pl-PL') : 'BRAK')
+      + ' | zgłoszony ' + tak(s.respawnZgloszony) + ' | auto-log ' + (s.autoLoginAt
+        ? new Date(s.autoLoginAt).toLocaleTimeString('pl-PL') : 'brak')
+      + ' | runs ' + (s.runs || 0) + ' | powód ' + (s.homeReason || '-')
+      + ' | znalezionych ' + (s.found || 0));
+    LOG.info('STAN: zwoje ' + (p.zwoje.join(', ') || 'brak')
+      + ' | timery ' + (p.timers && p.timers.length
+        ? p.timers.map(function (t) { return t.minutes + ' min'; }).join(', ') : 'pusty')
+      + ' | NPC ' + p.npcs + ' | bramy ' + (p.gateways ? p.gateways.length : 0));
+    UI.build();
+  }
+
   function boot() {
     if (booted) return;
     booted = true;
@@ -5420,25 +5542,7 @@ const CSS_HEROS_HUNTER = [
         LOG.info('Skok do kroku ' + (i + 1) + '/' + MAPS.all().length + ' - ' + (krok ? krok.name : '?'));
         BOT.setState('GO');
       },
-      probe: function () {
-        return {
-          url: location.href,
-          world: GAME.world(),
-          loggedIn: GAME.loggedIn(),
-          dead: GAME.dead(),
-          state: BOT.state,
-          map: GAME.rawMap(),
-          cords: GAME.cords(),
-          idle: GAME.idle(),
-          locked: GAME.locked(),
-          npcs: GAME.npcs().length,
-          hero: BOT.findHero(),
-          heroSpawns: GAME.heroSpawns(),
-          gateways: GAME.gateways(),
-          timers: GAME.eliteTimers(),
-          store: STORE.data,
-        };
-      },
+      probe: probe,
     };
 
     console.log('%cHeros Hunter v3%c - ' + GAME.world() + ' - HH.start() / HH.probe() / Alt+H',
