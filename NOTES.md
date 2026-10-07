@@ -2051,3 +2051,49 @@ Czy klik w `.charc` faktycznie loguje do gry - na karce testowej karta
 jest niewidoczna (0 px), wiec klik nic nie robi. Jesli po 3.8 panel
 pokaze "nie udalo sie zalogowac 4 razy - wejdz recznie", trzeba kliknac
 karte postaci raz recznie; od tej chwili skrypt widzi postac i jedzie.
+## 06.10 - trasa Zlego Przewodnika nie taka, jak lista gracza
+
+Zgloszenie: "pojebałes respy i zle chodzisz, nie w takiej kolejnosci jak
+wyslalem". Skrypt chodzi po `list[i]` z `spawnIndex` rosnacym, wiec
+kolejnosci nie miesza nikt w kodzie - problem byl w danych.
+
+Porownanie bloku `CONFIG.HEROES[przewodnik].route` z lista gracza
+(21 krokow, 56 punktow):
+
+| mapa | w pliku | na liscie |
+|---|---|---|
+| 38 Uroczysko | 13,26 22,53 80,33 90,9 92,50 | 92,50 80,33 90,9 22,53 13,26 |
+| 150 Zapomniany Szlak | 15 pkt, **z 58,41 na koncu** | 14 pkt, bez 58,41 |
+| 6474 Grota s.2 | 12,19 33,10 51,17 52,43 | 52,43 51,17 33,10 12,19 |
+| 6475 Grota s.3 | 5,15 28,42 34,13 34,29 45,49 | 34,13 5,15 34,29 28,42 45,49 |
+| 4550 boczny korytarz | 17,40 25,35 44,56 | 25,35 44,56 17,40 |
+| 4262 p.2 korytarz | 13,44 23,18 36,33 | 23,18 36,33 13,44 |
+| 140 Mroczny Przesmyk | 9 pkt, **z 15,51** | 8 pkt, bez 15,51 |
+
+Punkty na szesciu mapach byly **posortowane rosnaco po x** - ten sam
+zestaw, inna kolejność. Bot chodzil zigzagiem, a to wygladalo jak
+pominiecie respa. Nadmiarowe 58,41 (mapa 150) i 15,51 (mapa 140)
+przyszly z jednej mapy do drugiej przy przepisywaniu trasy.
+
+### Poprawka (4.3)
+
+Trasa przepisana dokladnie po liscie gracza: kolejnosci wjjscia,
+14 punktow na Zapomnianym Szlaku, 8 w Mrocznym Przesmyku.
+
+`_verifyTrasa.js` porownuje plik z lista punkt po punkcie i wywala
+roznice w numerze mapy, kolejnosci i wspolrzednych. Wynik: **21/21
+krokow, 56/56 punktow, 0 roznic**.
+
+### WZOREC na blad przy przepisywaniu
+
+`spawns` to lista **w kolejnosci obchodzenia**, nie zbior punktow. Sortowanie
+jej "dla czytelnosci" cicho odwraca trase. Latwiej to zlapic walidatorem
+niz wczytaniem kodu.
+
+### Kolejny blad mojego raportowania
+
+Pierwsza wersja tego wpisu twierdzila, ze w Mrocznym Przesmyku brakuje
+59,54 i sa trzy nadmiarowe punkty. To bylo zle - pochodzilo ze zrzutu
+`probe()` z **starej** wersji skryptu wczytanej w przegladarce, nie
+z biezacego pliku. W pliku 59,54 juz bylo; nadmiarowy byl tylko 15,51.
+Pomiar stanu z uruchomionego skryptu bywa starszy niz plik na dysku.
