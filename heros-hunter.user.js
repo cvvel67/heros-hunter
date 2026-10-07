@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      4.9
+// @version      4.10
 // @description  Obchodzi respy wybranego herosa, pinguje Discord po znalezieniu
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
@@ -134,7 +134,7 @@
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '4.9';
+  const WERSJA = '4.10';
 
   /* =====================================================================
    *  1. CONFIG
@@ -6025,6 +6025,22 @@ const CSS_HEROS_HUNTER = [
   function boot() {
     if (booted) return;
     booted = true;
+
+    // Strażnik przed drugim egzemplarzem. Zmierzone 07.10: dwa wstrzyknięcia
+    // tej samej wersji na jednej stronie = dwa boty jedzące tę samą
+    // postać. Efekt wygladal jak "glupi chodzacy bot": cofalo sie,
+    // wchodzilo dwa razy na te sama mape i restartowalo obchod respa
+    // ("Jestem na Zapomniany Szlak" 10 razy, "Resp 1/14" w kółko).
+    // Zmienna jest na STRONIE, nie w piaskownicy, bo kazde wstrzyknięcie
+    // ma wlasna klamre - wewnetrzna flaga `booted` tego nie lapie.
+    // Po zmianie wersji strażnik puszcza świeżą.
+    try {
+      if (STRONA.__hhBotWersja === WERSJA) {
+        console.warn('[HH] Wersja ' + WERSJA + ' jest już włączona - drugi egzemplarz się wyłącza.');
+        return;
+      }
+      STRONA.__hhBotWersja = WERSJA;
+    } catch (e) { /* piaskownica - jedziemy bez strażnika */ }
 
     STORE.load();
     MAPS.seedGraph();
