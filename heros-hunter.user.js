@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      4.5
+// @version      4.6
 // @description  Obchodzi respy wybranego herosa, pinguje Discord po znalezieniu
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
@@ -134,7 +134,7 @@
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '4.5';
+  const WERSJA = '4.6';
 
   /* =====================================================================
    *  1. CONFIG
@@ -1379,7 +1379,7 @@
       let karty = [];
       try {
         karty = Array.prototype.slice.call(
-          document.querySelectorAll('.charc, .character-item, .relogger__one-character'));
+          document.querySelectorAll('#js-login-box .select-char, .charc, .character-item, .relogger__one-character'));
       } catch (e) { karty = []; }
 
       const opis = function (k) {
@@ -1407,8 +1407,30 @@
       }
       if (!wybrana && karty.length === 1) wybrana = karty[0];
       if (wybrana) {
+        // Najpierw zwykly klik. Zmierzone 06.10: gra go na karcie
+        // postaci IGNORUJE (programowy click nie ma isTrusted), wiec
+        // klikamy syntetycznie, a jak przejdzie 1,5 s i Engine sie nie
+        // pojawi, probujemy prawdziwego kliku przez rozszerzenie
+        // "Trusted Events" (GAME.trustedClick).
+        const opisKarty = opis(wybrana);
         wybrana.click();
-        return { ok: true, kto: opis(wybrana) + ' (' + swiat + ')' };
+        if (this.trustedDostepne()) {
+          const prostokat = wybrana.getBoundingClientRect();
+          if (prostokat.width > 0 && prostokat.height > 0) {
+            const self = this;
+            setTimeout(function () {
+              if (GAME.ready()) return;      // klik zadzialal
+              const x = Math.round(prostokat.left + prostokat.width / 2);
+              const y = Math.round(prostokat.top + prostokat.height / 2);
+              self.trustedClick(x, y).then(function (r) {
+                if (r && r.ok) {
+                  LOG.ok('Logowanie: prawdziwy klik w ' + opisKarty + ' (' + x + ',' + y + ').');
+                }
+              });
+            }, 1500);
+          }
+        }
+        return { ok: true, kto: opisKarty + ' (' + swiat + ')' };
       }
 
       // Stara lista - na innych wersjach strony logowania przycisk
@@ -1423,6 +1445,153 @@
         }
       }
       return { ok: false, ileKart: karty.length, swiat: swiat };
+    },
+
+    // ---------------------------------------------------------------
+//  KLIKNIECIA "TRUSTED"
+//
+//  Gra ignoruje programowe klikniecia (`isTrusted` = false).
+//  Zmierzone 06.10 na stronie wyboru postaci: `click()` w karte
+//  `#js-login-box .select-char` nic nie zrobil - URL bez zmian,
+//  `Engine` sie nie pojawil. Dopiero rozszerzenie "Trusted Events"
+//  potrafi wygenerowac prawdziwe zdarzenie myszy.
+//
+//  Rozszerzenie wystawia na stronie `__trustedClickXY(x, y)` i nasluchuje
+//  zdarzenia `__TRUSTED_EVENT`, na ktore odpowiada `__TRUSTED_EVENT_RESPONSE`.
+//  Nie ma go? Wszystko w tym skrypcie dziala jak dotad - trusted clicki
+//  sa awaryjnie, a nie warunkiem dzialania.
+//
+//  UWAGA: `Engine` w piaskownicy to proxy na `STRONA.Engine`, wiec
+//  `STRONA` jest tu jedynym miejscem, gdzie szukamy `__trustedClickXY`
+//  i skad bierzemy wspolrzedne.
+// ---------------------------------------------------------------
+trustedApi() {
+  const kandydaci = [STRONA, window, globalThis, document.defaultView];
+  let ramki = [];
+  try { ramki = document.querySelectorAll('iframe'); } catch (e) { ramki = []; }
+  for (let i = 0; i < ramki.length; i++) {
+    try { if (ramki[i].contentWindow) kandydaci.push(ramki[i].contentWindow); } catch (e) { /* inna domena */ }
+  }
+  for (let i = 0; i < kandydaci.length; i++) {
+    try {
+      if (kandydaci[i] && typeof kandydaci[i].__trustedClickXY === 'function') return kandydaci[i];
+    } catch (e) { /* inna domena */ }
+  }
+  return null;
+  },
+
+    trustedDostepne() { return !!this.trustedApi(); },
+
+    // Prawdziwy klik w piksele ekranu. Promise, bo rozszerzenie
+    // odpowiada asynchronicznie - bez tego skrypt wiedzialby o wyniku
+    // dopiero po kolejnych sekundach, a to juz nie wiazlo sie z logiem.
+    trustedClick(x, y, button) {
+      const api = this.trustedApi();
+      if (!api) return Promise.resolve({ ok: false, powod: 'brak rozszerzenia Trusted Events' });
+      const STR = STRONA;
+      return new Promise(function (resolve) {
+        const id = 'hh-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+        let gotowe = false;
+        const koniec = function (wynik) {
+          if (gotowe) return;
+          gotowe = true;
+          clearTimeout(timer);
+          STR.removeEventListener('__TRUSTED_EVENT_RESPONSE', sluchaj);
+          resolve(wynik);
+        };
+        const sluchaj = function (e) {
+          const d = (e && e.detail) || {};
+          if (d._callbackId !== id) return;
+          const r = d.response || {};
+          koniec({ ok: !!r.success, powod: r.error || null });
+        };
+        const timer = setTimeout(function () {
+          koniec({ ok: false, powod: 'brak odpowiedzi Trusted Events' });
+        }, 3000);
+        STR.addEventListener('__TRUSTED_EVENT_RESPONSE', sluchaj);
+        try {
+          STR.dispatchEvent(new STR.CustomEvent('__TRUSTED_EVENT', {
+            detail: {
+              _callbackId: id, action: 'click',
+              x: Math.round(Number(x)), y: Math.round(Number(y)),
+              button: button || 'left', clickCount: 1,
+            },
+          }));
+        } catch (e) {
+          koniec({ ok: false, powod: 'wyjatek: ' + e.message });
+        }
+      });
+    },
+
+    // Kafel mapy (x,y) -> piksele na canvasie. Rzut izometryczny:
+    // kamera jest wycentrowana na postaci, kafel ma tileWidth x tileHeight.
+    tileToScreen(x, y) {
+      try {
+        const me = STRONA.Engine && STRONA.Engine.hero && STRONA.Engine.hero.d;
+        const mapaDane = (STRONA.Engine && STRONA.Engine.map && STRONA.Engine.map.d) || {};
+        let canvas = null;
+        try {
+          canvas = document.getElementById('GAME_CANVAS');
+          if (!canvas) {
+            // Bez ID szukamy najwiekszego WIDOCZNEGO canvasu. Zmierzone
+            // 07.10: na stronie jest 188 canvasow, wiekszosc to niewidoczne
+            // ikony 32x32, a `canvas` jako selektor trafial w pierwszy z
+            // nich - 0x0 px i zupelnie nie ten.
+            let naj = null;
+            const kand = document.querySelectorAll('canvas');
+            for (let i = 0; i < kand.length; i++) {
+              const kr = kand[i].getBoundingClientRect();
+              if (!kr.width || !kr.height) continue;
+              if (!naj || kr.width * kr.height > naj.area) naj = { el: kand[i], area: kr.width * kr.height };
+            }
+            canvas = naj ? naj.el : null;
+          }
+        } catch (e) { canvas = null; }
+        if (!canvas || !me) return null;
+        const r = canvas.getBoundingClientRect();
+        if (!r.width || !r.height) return null;
+        // Rozmiar kafla: mapa ma wymiar w kafelkach (d.x, d.y) i w
+        // pikselach (map.width, map.height). Zmierzone 07.10 na mapie 38:
+        // 96x64 kafli, 3072x2048 px  ->  kafel 32x32. Domyslne 48x24
+        // z wklejonego kodu bylo zle i dalo by kafle obok celu.
+        let tileW = 32;
+        let tileH = 32;
+        const mapaGry = (STRONA.Engine && STRONA.Engine.map) || {};
+        const dane = mapaDane;
+        if (mapaGry.width && dane.x) tileW = mapaGry.width / dane.x;
+        else if (dane.tileWidth) tileW = dane.tileWidth;
+        if (mapaGry.height && dane.y) tileH = mapaGry.height / dane.y;
+        else if (dane.tileHeight) tileH = dane.tileHeight;
+        const dx = Number(x) - Number(me.x);
+        const dy = Number(y) - Number(me.y);
+        const px = r.left + r.width / 2 + (dx - dy) * tileW / 2;
+        const py = r.top + r.height / 2 + (dx + dy) * tileH / 2;
+        if (px < r.left || px > r.right || py < r.top || py > r.bottom) return null;
+        return { x: Math.round(px), y: Math.round(py) };
+      } catch (e) { return null; }
+    },
+
+    // Klik w kafel. Najpierw prawdziwy (jak jest rozszerzenie), a jak
+    // nie ma - autoGoTo, ktore w calym skrypcie jest glowna droga ruchu.
+    clickTile(x, y) {
+      const self = this;
+      const punkt = this.tileToScreen(x, y);
+      if (this.trustedDostepne() && punkt) {
+        return this.trustedClick(punkt.x, punkt.y).then(function (r) {
+          if (r.ok) return { via: 'trusted' };
+          if (typeof STRONA.Engine.hero.autoGoTo === 'function') {
+            STRONA.Engine.hero.autoGoTo({ x: x, y: y }, false);
+            return { via: 'autoGoTo', powod: r.powod };
+          }
+          return { via: null, powod: r.powod };
+        });
+      }
+      if (typeof STRONA.Engine.hero.autoGoTo === 'function') {
+        STRONA.Engine.hero.autoGoTo({ x: x, y: y }, false);
+        return Promise.resolve({ via: 'autoGoTo' });
+      }
+      void self;
+      return Promise.resolve({ via: null, powod: 'brak trusted API i autoGoTo' });
     },
 
     logout() {
@@ -2729,6 +2898,10 @@ const CSS_HEROS_HUNTER = [
       // layoutcie (dwa osobne dawałyby dwa pionowe kreski obok siebie).
       // Wypełnia go UI.swiat() w boot(), po build().
       this.swiatEl = el('span', 'hh-sw');
+      // build() kasuje caly #hh-panel, wiec swiat i wersja musza trafic
+      // do nowego elementu. Bez tego napis znikal po kazdym
+      // przebudowaniu (zdarza sie przy zmianie licznika zwojow).
+      this.swiat(this._swiat || '');
       sub.appendChild(this.swiatEl);
       title.appendChild(sub);
       head.appendChild(title);
@@ -3829,7 +4002,8 @@ const CSS_HEROS_HUNTER = [
     // Świat wskazuje, gdzie bot jechał, wersja czy aktualizacja dotarła.
     // Oba napisy są na szaro: to informacja, nie akcja.
     swiat(nazwa) {
-      if (this.swiatEl) this.swiatEl.textContent = (nazwa || '?') + ' · v' + WERSJA;
+      this._swiat = nazwa || '';
+      if (this.swiatEl) this.swiatEl.textContent = (this._swiat || '?') + ' · v' + WERSJA;
     },
 
     staty(hero, killed) {
@@ -5694,7 +5868,8 @@ const CSS_HEROS_HUNTER = [
       + ' | map ' + (E && E.map ? 'jest' : 'BRAK')
       + ' | lock ' + (E && E.lock && E.lock.list ? JSON.stringify(E.lock.list) : 'brak')
       + ' | dead ' + (E ? String(E.dead) : '-')
-      + ' | karty .charc ' + document.querySelectorAll('.charc').length);
+      + ' | karty .charc ' + document.querySelectorAll('.charc').length
+      + ' | trusted ' + (GAME.trustedDostepne() ? 'TAK' : 'nie'));
     UI.build();
   }
 
