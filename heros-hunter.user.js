@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      4.4
+// @version      4.5
 // @description  Obchodzi respy wybranego herosa, pinguje Discord po znalezieniu
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
@@ -134,7 +134,7 @@
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '4.4';
+  const WERSJA = '4.5';
 
   /* =====================================================================
    *  1. CONFIG
@@ -348,7 +348,7 @@
           { id: 814, spawns: [{ x: 13, y: 16 }] },
           { id: 815, spawns: [{ x: 25, y: 20 }, { x: 35, y: 9 }, { x: 55, y: 17 }] },
           { id: 816, spawns: [{ x: 9, y: 18 }] },
-          { id: 3869, spawns: [{ x: 10, y: 16 }, { x: 22, y: 41 }, { x: 34, y: 16 }] },
+          { id: 3869, spawns: [{ x: 22, y: 41 }, { x: 34, y: 16 }, { x: 10, y: 16 }] },
 
           { id: 815, pass: true },
           { id: 814, pass: true },
