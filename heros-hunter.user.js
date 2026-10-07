@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      4.6
+// @version      4.7
 // @description  Obchodzi respy wybranego herosa, pinguje Discord po znalezieniu
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
@@ -134,7 +134,7 @@
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '4.6';
+  const WERSJA = '4.7';
 
   /* =====================================================================
    *  1. CONFIG
@@ -184,6 +184,11 @@
     // Odstęp między wywołaniami autoGoTo. autoGoTo ignoruje wywołania
     // w trakcie animacji kafelka, więc pytamy raz na jakiś czas.
     GO_EVERY_MS: 2500,
+
+    // Ile czekamy, zanim uznamy, ze autoGoTo nie zadzialalo, i sprobujemy
+    // prawdziwego kliku. Wieksze niz GO_EVERY_MS, bo autoGoTo czasem
+    // potrzebuje chwili na przeliczenie drogi.
+    TRUSTED_AFTER_MS: 4000,
 
     // Webhook Discord. Wpisany na test 03.10.
     // UWAGA: ten adres był ujawniony w rozmowie - po testach zrotuj go
@@ -1447,152 +1452,152 @@
       return { ok: false, ileKart: karty.length, swiat: swiat };
     },
 
+        // ---------------------------------------------------------------
+    //  KLIKNIECIA "TRUSTED"
+    //
+    //  Gra ignoruje programowe klikniecia (`isTrusted` = false).
+    //  Zmierzone 06.10 na stronie wyboru postaci: `click()` w karte
+    //  `#js-login-box .select-char` nic nie zrobil - URL bez zmian,
+    //  `Engine` sie nie pojawil. Dopiero rozszerzenie "Trusted Events"
+    //  potrafi wygenerowac prawdziwe zdarzenie myszy.
+    //
+    //  Rozszerzenie wystawia na stronie `__trustedClickXY(x, y)` i nasluchuje
+    //  zdarzenia `__TRUSTED_EVENT`, na ktore odpowiada `__TRUSTED_EVENT_RESPONSE`.
+    //  Nie ma go? Wszystko w tym skrypcie dziala jak dotad - trusted clicki
+    //  sa awaryjnie, a nie warunkiem dzialania.
+    //
+    //  UWAGA: `Engine` w piaskownicy to proxy na `STRONA.Engine`, wiec
+    //  `STRONA` jest tu jedynym miejscem, gdzie szukamy `__trustedClickXY`
+    //  i skad bierzemy wspolrzedne.
     // ---------------------------------------------------------------
-//  KLIKNIECIA "TRUSTED"
-//
-//  Gra ignoruje programowe klikniecia (`isTrusted` = false).
-//  Zmierzone 06.10 na stronie wyboru postaci: `click()` w karte
-//  `#js-login-box .select-char` nic nie zrobil - URL bez zmian,
-//  `Engine` sie nie pojawil. Dopiero rozszerzenie "Trusted Events"
-//  potrafi wygenerowac prawdziwe zdarzenie myszy.
-//
-//  Rozszerzenie wystawia na stronie `__trustedClickXY(x, y)` i nasluchuje
-//  zdarzenia `__TRUSTED_EVENT`, na ktore odpowiada `__TRUSTED_EVENT_RESPONSE`.
-//  Nie ma go? Wszystko w tym skrypcie dziala jak dotad - trusted clicki
-//  sa awaryjnie, a nie warunkiem dzialania.
-//
-//  UWAGA: `Engine` w piaskownicy to proxy na `STRONA.Engine`, wiec
-//  `STRONA` jest tu jedynym miejscem, gdzie szukamy `__trustedClickXY`
-//  i skad bierzemy wspolrzedne.
-// ---------------------------------------------------------------
-trustedApi() {
-  const kandydaci = [STRONA, window, globalThis, document.defaultView];
-  let ramki = [];
-  try { ramki = document.querySelectorAll('iframe'); } catch (e) { ramki = []; }
-  for (let i = 0; i < ramki.length; i++) {
-    try { if (ramki[i].contentWindow) kandydaci.push(ramki[i].contentWindow); } catch (e) { /* inna domena */ }
-  }
-  for (let i = 0; i < kandydaci.length; i++) {
-    try {
-      if (kandydaci[i] && typeof kandydaci[i].__trustedClickXY === 'function') return kandydaci[i];
-    } catch (e) { /* inna domena */ }
-  }
-  return null;
-  },
-
-    trustedDostepne() { return !!this.trustedApi(); },
-
-    // Prawdziwy klik w piksele ekranu. Promise, bo rozszerzenie
-    // odpowiada asynchronicznie - bez tego skrypt wiedzialby o wyniku
-    // dopiero po kolejnych sekundach, a to juz nie wiazlo sie z logiem.
-    trustedClick(x, y, button) {
-      const api = this.trustedApi();
-      if (!api) return Promise.resolve({ ok: false, powod: 'brak rozszerzenia Trusted Events' });
-      const STR = STRONA;
-      return new Promise(function (resolve) {
-        const id = 'hh-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
-        let gotowe = false;
-        const koniec = function (wynik) {
-          if (gotowe) return;
-          gotowe = true;
-          clearTimeout(timer);
-          STR.removeEventListener('__TRUSTED_EVENT_RESPONSE', sluchaj);
-          resolve(wynik);
-        };
-        const sluchaj = function (e) {
-          const d = (e && e.detail) || {};
-          if (d._callbackId !== id) return;
-          const r = d.response || {};
-          koniec({ ok: !!r.success, powod: r.error || null });
-        };
-        const timer = setTimeout(function () {
-          koniec({ ok: false, powod: 'brak odpowiedzi Trusted Events' });
-        }, 3000);
-        STR.addEventListener('__TRUSTED_EVENT_RESPONSE', sluchaj);
+    trustedApi() {
+      const kandydaci = [STRONA, window, globalThis, document.defaultView];
+      let ramki = [];
+      try { ramki = document.querySelectorAll('iframe'); } catch (e) { ramki = []; }
+      for (let i = 0; i < ramki.length; i++) {
+        try { if (ramki[i].contentWindow) kandydaci.push(ramki[i].contentWindow); } catch (e) { /* inna domena */ }
+      }
+      for (let i = 0; i < kandydaci.length; i++) {
         try {
-          STR.dispatchEvent(new STR.CustomEvent('__TRUSTED_EVENT', {
-            detail: {
-              _callbackId: id, action: 'click',
-              x: Math.round(Number(x)), y: Math.round(Number(y)),
-              button: button || 'left', clickCount: 1,
-            },
-          }));
-        } catch (e) {
-          koniec({ ok: false, powod: 'wyjatek: ' + e.message });
-        }
-      });
-    },
+          if (kandydaci[i] && typeof kandydaci[i].__trustedClickXY === 'function') return kandydaci[i];
+        } catch (e) { /* inna domena */ }
+      }
+      return null;
+      },
 
-    // Kafel mapy (x,y) -> piksele na canvasie. Rzut izometryczny:
-    // kamera jest wycentrowana na postaci, kafel ma tileWidth x tileHeight.
-    tileToScreen(x, y) {
-      try {
-        const me = STRONA.Engine && STRONA.Engine.hero && STRONA.Engine.hero.d;
-        const mapaDane = (STRONA.Engine && STRONA.Engine.map && STRONA.Engine.map.d) || {};
-        let canvas = null;
-        try {
-          canvas = document.getElementById('GAME_CANVAS');
-          if (!canvas) {
-            // Bez ID szukamy najwiekszego WIDOCZNEGO canvasu. Zmierzone
-            // 07.10: na stronie jest 188 canvasow, wiekszosc to niewidoczne
-            // ikony 32x32, a `canvas` jako selektor trafial w pierwszy z
-            // nich - 0x0 px i zupelnie nie ten.
-            let naj = null;
-            const kand = document.querySelectorAll('canvas');
-            for (let i = 0; i < kand.length; i++) {
-              const kr = kand[i].getBoundingClientRect();
-              if (!kr.width || !kr.height) continue;
-              if (!naj || kr.width * kr.height > naj.area) naj = { el: kand[i], area: kr.width * kr.height };
+        trustedDostepne() { return !!this.trustedApi(); },
+
+        // Prawdziwy klik w piksele ekranu. Promise, bo rozszerzenie
+        // odpowiada asynchronicznie - bez tego skrypt wiedzialby o wyniku
+        // dopiero po kolejnych sekundach, a to juz nie wiazlo sie z logiem.
+        trustedClick(x, y, button) {
+          const api = this.trustedApi();
+          if (!api) return Promise.resolve({ ok: false, powod: 'brak rozszerzenia Trusted Events' });
+          const STR = STRONA;
+          return new Promise(function (resolve) {
+            const id = 'hh-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+            let gotowe = false;
+            const koniec = function (wynik) {
+              if (gotowe) return;
+              gotowe = true;
+              clearTimeout(timer);
+              STR.removeEventListener('__TRUSTED_EVENT_RESPONSE', sluchaj);
+              resolve(wynik);
+            };
+            const sluchaj = function (e) {
+              const d = (e && e.detail) || {};
+              if (d._callbackId !== id) return;
+              const r = d.response || {};
+              koniec({ ok: !!r.success, powod: r.error || null });
+            };
+            const timer = setTimeout(function () {
+              koniec({ ok: false, powod: 'brak odpowiedzi Trusted Events' });
+            }, 3000);
+            STR.addEventListener('__TRUSTED_EVENT_RESPONSE', sluchaj);
+            try {
+              STR.dispatchEvent(new STR.CustomEvent('__TRUSTED_EVENT', {
+                detail: {
+                  _callbackId: id, action: 'click',
+                  x: Math.round(Number(x)), y: Math.round(Number(y)),
+                  button: button || 'left', clickCount: 1,
+                },
+              }));
+            } catch (e) {
+              koniec({ ok: false, powod: 'wyjatek: ' + e.message });
             }
-            canvas = naj ? naj.el : null;
-          }
-        } catch (e) { canvas = null; }
-        if (!canvas || !me) return null;
-        const r = canvas.getBoundingClientRect();
-        if (!r.width || !r.height) return null;
-        // Rozmiar kafla: mapa ma wymiar w kafelkach (d.x, d.y) i w
-        // pikselach (map.width, map.height). Zmierzone 07.10 na mapie 38:
-        // 96x64 kafli, 3072x2048 px  ->  kafel 32x32. Domyslne 48x24
-        // z wklejonego kodu bylo zle i dalo by kafle obok celu.
-        let tileW = 32;
-        let tileH = 32;
-        const mapaGry = (STRONA.Engine && STRONA.Engine.map) || {};
-        const dane = mapaDane;
-        if (mapaGry.width && dane.x) tileW = mapaGry.width / dane.x;
-        else if (dane.tileWidth) tileW = dane.tileWidth;
-        if (mapaGry.height && dane.y) tileH = mapaGry.height / dane.y;
-        else if (dane.tileHeight) tileH = dane.tileHeight;
-        const dx = Number(x) - Number(me.x);
-        const dy = Number(y) - Number(me.y);
-        const px = r.left + r.width / 2 + (dx - dy) * tileW / 2;
-        const py = r.top + r.height / 2 + (dx + dy) * tileH / 2;
-        if (px < r.left || px > r.right || py < r.top || py > r.bottom) return null;
-        return { x: Math.round(px), y: Math.round(py) };
-      } catch (e) { return null; }
-    },
+          });
+        },
 
-    // Klik w kafel. Najpierw prawdziwy (jak jest rozszerzenie), a jak
-    // nie ma - autoGoTo, ktore w calym skrypcie jest glowna droga ruchu.
-    clickTile(x, y) {
-      const self = this;
-      const punkt = this.tileToScreen(x, y);
-      if (this.trustedDostepne() && punkt) {
-        return this.trustedClick(punkt.x, punkt.y).then(function (r) {
-          if (r.ok) return { via: 'trusted' };
+        // Kafel mapy (x,y) -> piksele na canvasie. Rzut izometryczny:
+        // kamera jest wycentrowana na postaci, kafel ma tileWidth x tileHeight.
+        tileToScreen(x, y) {
+          try {
+            const me = STRONA.Engine && STRONA.Engine.hero && STRONA.Engine.hero.d;
+            const mapaDane = (STRONA.Engine && STRONA.Engine.map && STRONA.Engine.map.d) || {};
+            let canvas = null;
+            try {
+              canvas = document.getElementById('GAME_CANVAS');
+              if (!canvas) {
+                // Bez ID szukamy najwiekszego WIDOCZNEGO canvasu. Zmierzone
+                // 07.10: na stronie jest 188 canvasow, wiekszosc to niewidoczne
+                // ikony 32x32, a `canvas` jako selektor trafial w pierwszy z
+                // nich - 0x0 px i zupelnie nie ten.
+                let naj = null;
+                const kand = document.querySelectorAll('canvas');
+                for (let i = 0; i < kand.length; i++) {
+                  const kr = kand[i].getBoundingClientRect();
+                  if (!kr.width || !kr.height) continue;
+                  if (!naj || kr.width * kr.height > naj.area) naj = { el: kand[i], area: kr.width * kr.height };
+                }
+                canvas = naj ? naj.el : null;
+              }
+            } catch (e) { canvas = null; }
+            if (!canvas || !me) return null;
+            const r = canvas.getBoundingClientRect();
+            if (!r.width || !r.height) return null;
+            // Rozmiar kafla: mapa ma wymiar w kafelkach (d.x, d.y) i w
+            // pikselach (map.width, map.height). Zmierzone 07.10 na mapie 38:
+            // 96x64 kafli, 3072x2048 px  ->  kafel 32x32. Domyslne 48x24
+            // z wklejonego kodu bylo zle i dalo by kafle obok celu.
+            let tileW = 32;
+            let tileH = 32;
+            const mapaGry = (STRONA.Engine && STRONA.Engine.map) || {};
+            const dane = mapaDane;
+            if (mapaGry.width && dane.x) tileW = mapaGry.width / dane.x;
+            else if (dane.tileWidth) tileW = dane.tileWidth;
+            if (mapaGry.height && dane.y) tileH = mapaGry.height / dane.y;
+            else if (dane.tileHeight) tileH = dane.tileHeight;
+            const dx = Number(x) - Number(me.x);
+            const dy = Number(y) - Number(me.y);
+            const px = r.left + r.width / 2 + (dx - dy) * tileW / 2;
+            const py = r.top + r.height / 2 + (dx + dy) * tileH / 2;
+            if (px < r.left || px > r.right || py < r.top || py > r.bottom) return null;
+            return { x: Math.round(px), y: Math.round(py) };
+          } catch (e) { return null; }
+        },
+
+        // Klik w kafel. Najpierw prawdziwy (jak jest rozszerzenie), a jak
+        // nie ma - autoGoTo, ktore w calym skrypcie jest glowna droga ruchu.
+        clickTile(x, y) {
+          const self = this;
+          const punkt = this.tileToScreen(x, y);
+          if (this.trustedDostepne() && punkt) {
+            return this.trustedClick(punkt.x, punkt.y).then(function (r) {
+              if (r.ok) return { via: 'trusted' };
+              if (typeof STRONA.Engine.hero.autoGoTo === 'function') {
+                STRONA.Engine.hero.autoGoTo({ x: x, y: y }, false);
+                return { via: 'autoGoTo', powod: r.powod };
+              }
+              return { via: null, powod: r.powod };
+            });
+          }
           if (typeof STRONA.Engine.hero.autoGoTo === 'function') {
             STRONA.Engine.hero.autoGoTo({ x: x, y: y }, false);
-            return { via: 'autoGoTo', powod: r.powod };
+            return Promise.resolve({ via: 'autoGoTo' });
           }
-          return { via: null, powod: r.powod };
-        });
-      }
-      if (typeof STRONA.Engine.hero.autoGoTo === 'function') {
-        STRONA.Engine.hero.autoGoTo({ x: x, y: y }, false);
-        return Promise.resolve({ via: 'autoGoTo' });
-      }
-      void self;
-      return Promise.resolve({ via: null, powod: 'brak trusted API i autoGoTo' });
-    },
+          void self;
+          return Promise.resolve({ via: null, powod: 'brak trusted API i autoGoTo' });
+        },
 
     logout() {
       const el = document.querySelector('a[href*="logout"], .logout, #logout');
@@ -4071,8 +4076,27 @@ const CSS_HEROS_HUNTER = [
     timer: null,
     startedAt: 0,
     lastGo: 0,
+    // Pamiec o ostatnim poleceniu ruchu: ktory kafel, kiedy wyslany
+    // i gdzie wtedy stac. Pozwala oznaczyc, ze autoGoTo przestal dzialac.
+    goCel: null,
+    goOd: 0,
+    goPoz: null,
+    goTrusted: 0,
+    goBezmowy: false,
     lastMap: null,
     notFoundThisMap: false,
+
+    // Kasuje wszystkie liczniki ruchu. Wywolywane przy kazdej zmianie
+    // stanu i przy skoku do kroku - inaczej pamiec o "autoGoTo nie dziala"
+    // przetrwala zmiane celu i klikalaby w zly kafel.
+    resetGo() {
+      this.lastGo = 0;
+      this.goCel = null;
+      this.goOd = 0;
+      this.goPoz = null;
+      this.goTrusted = 0;
+      this.goBezmowy = false;
+    },
 
     setState(s) {
       if (this.state === s) return;
@@ -4316,13 +4340,72 @@ const CSS_HEROS_HUNTER = [
     },
 
     // Throttle autoGoTo - gra ignoruje wywolania w trakcie animacji kafelka
+    //
+    // Druga linia obrony: jak autoGoTo przestalo ruszac postac (gra
+    // zaczela sprawdzac wywolania, po aktualizacji, cokolwiek), a jest
+    // rozszerzenie Trusted Events, probujemy prawdziwego kliku w ten sam
+    // kafel. Klik jest niezalezny od autoGoTo wiec dziala nawet jak
+    // autoGoTo zostanie zablokowane. Bez rozszerzenia mowimy w logu
+    // dlaczego stoimy - inaczej wyglada to jak zawieszenie skryptu.
     walk(x, y) {
       if (!GAME.inBounds(x, y)) return false;
       if (GAME.locked()) return false;
       const now = Date.now();
+      const cel = x + ',' + y;
+
+      // Nowy cel = czysta karta. Stary licznik awarii dotyczy innego kafla.
+      if (this.goCel !== cel) {
+        this.goCel = cel;
+        this.goOd = 0;
+        this.goTrusted = 0;
+        this.goBezmowy = false;
+      }
+
+      const poz = GAME.pos();
+      const pozTeraz = poz ? poz[0] + ',' + poz[1] : null;
+
+      if (this.goOd && pozTeraz !== this.goPoz) {
+        // Postac ruszyla sie - wszystko gra, zerujemy liczniki.
+        this.goOd = 0;
+        this.goTrusted = 0;
+        this.goBezmowy = false;
+      }
+
+      if (this.goOd && !this.goTrusted
+          && pozTeraz !== cel
+          && now - this.goOd > CONFIG.TRUSTED_AFTER_MS) {
+        this.escalate(x, y, cel);
+        return false;
+      }
+
       if (now - this.lastGo < CONFIG.GO_EVERY_MS) return false;
       this.lastGo = now;
+      if (!this.goOd) {
+        this.goOd = now;
+        this.goPoz = pozTeraz;
+      }
       return GAME.walk(x, y);
+    },
+
+    // autoGoTo nie ruszylo postaci. Prawdziwy klik w ten sam kafel.
+    // Jeden proba na kafel - potem wracamy do autoGoTo, zeby nie miesc
+    // postaci w petli klikow w to samo miejsce.
+    escalate(x, y, cel) {
+      this.goTrusted = Date.now();
+      if (!GAME.trustedDostepne()) {
+        if (!this.goBezmowy) {
+          this.goBezmowy = true;
+          LOG.warn('Stoje na ' + cel + ' po autoGoTo. Prawdziwego kliku nie ma - brak rozszerzenia Trusted Events.');
+        }
+        return;
+      }
+      const punkt = GAME.tileToScreen(x, y);
+      if (!punkt) return;   // cel poza kadrem - nie ma czego klikac
+      LOG.warn('Stoje ' + cel + ' po autoGoTo - probuje prawdziwego kliku.');
+      GAME.trustedClick(punkt.x, punkt.y).then(function (r) {
+        if (r && r.ok) LOG.ok('Prawdziwy klik w ' + cel + ' (' + punkt.x + ',' + punkt.y + ') - postac ruszyla.');
+        else LOG.warn('Prawdziwy klik w ' + cel + ' nie wyszedl: ' + ((r && r.powod) || 'brak odpowiedzi'));
+      });
     },
 
     // Wchodzenie na brame.
@@ -4374,7 +4457,7 @@ const CSS_HEROS_HUNTER = [
         this.gwRetreats = ile + 1;
         this.gwRetreatAt = now;
         this.gwClicked = 0;
-        this.lastGo = 0;
+        this.resetGo();
         LOG.warn('Brama ' + x + ',' + y + ' nie przepuszcza - schodzę i wchodzę ponownie ('
           + this.gwRetreats + '/8).');
         return GAME.walk(b[0], b[1]);
@@ -4638,7 +4721,7 @@ const CSS_HEROS_HUNTER = [
         // zmiana mapy = nowy indeks respa na niej
         if (this.lastMap !== null && this.lastMap !== map.id) {
           STORE.set({ spawnIndex: 0, pointSince: 0 });
-          this.lastGo = 0;
+          this.resetGo();
         }
         this.lastMap = map.id;
 
@@ -4702,7 +4785,7 @@ const CSS_HEROS_HUNTER = [
       // Stoimy na mapie, ktora NIE jest biezacym krokiem trasy (np. przechodzimy
       // przez nia w drodze gdzie indziej). Nie przesuwamy kroku - wracamy do GO.
       if (!map.entry) {
-        this.lastGo = 0;
+        this.resetGo();
         this.setState('GO');
         return;
       }
@@ -4776,7 +4859,7 @@ const CSS_HEROS_HUNTER = [
     // Konec punktu respu: przesuwamy indeks i zerujemy licznik czasu.
     zakonczPunkt() {
       STORE.set({ spawnIndex: (STORE.data.spawnIndex || 0) + 1, pointSince: 0 });
-      this.lastGo = 0;
+      this.resetGo();
     },
 
     // mapa zrobiona -> nastepny krok trasy
@@ -4787,7 +4870,7 @@ const CSS_HEROS_HUNTER = [
     // startStep: przesuwamy sie o jeden krok dalej
     startStep() {
       STORE.set({ spawnIndex: 0, pointSince: 0, stepFails: 0 });
-      this.lastGo = 0;
+      this.resetGo();
       this.travelAt = 0;
 
       const all = MAPS.all();
@@ -4841,7 +4924,7 @@ const CSS_HEROS_HUNTER = [
       });
       this.path = null;
       this.pathIdx = 0;
-      this.lastGo = 0;
+      this.resetGo();
       this.travelAt = 0;
       this.deathHandled = false;
       this.foundSince = 0;
@@ -4907,7 +4990,7 @@ const CSS_HEROS_HUNTER = [
           return;
         }
         STORE.set({ spawnIndex: 0, pointSince: 0, stepFails: 0 });
-        this.lastGo = 0;
+        this.resetGo();
         LOG.info('Jestem na ' + step.name + ' - zaczynam obchód (' + step.spawns.length + ' respa).');
         this.setState('SCAN');
         return;
@@ -4919,7 +5002,7 @@ const CSS_HEROS_HUNTER = [
       if (this.path && this.path.length) {
         if (this.followPath(map)) {
           // dotarliśmy na miejsce
-          this.lastGo = 0;
+          this.resetGo();
           return;
         }
         UI.set('resp', prog + ': ' + step.name);
@@ -5352,7 +5435,7 @@ const CSS_HEROS_HUNTER = [
 
     newRun() {
       STORE.set({ routeIndex: 0, spawnIndex: 0, pointSince: 0, stepFails: 0 });
-      this.lastGo = 0;
+      this.resetGo();
       this.travelAt = 0;
       this.path = null;
       this.pathIdx = 0;
@@ -6043,7 +6126,7 @@ const CSS_HEROS_HUNTER = [
         STORE.set({ routeIndex: i, spawnIndex: 0, pointSince: 0, stepFails: 0, homeReason: null });
         BOT.path = null;
         BOT.pathIdx = 0;
-        BOT.lastGo = 0;
+        BOT.resetGo();
         BOT.travelAt = 0;
         BOT.deathHandled = false;
         LOG.info('Skok do kroku ' + (i + 1) + '/' + MAPS.all().length + ' - ' + (krok ? krok.name : '?'));
