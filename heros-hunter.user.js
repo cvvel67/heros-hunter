@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      4.7
+// @version      4.8
 // @description  Obchodzi respy wybranego herosa, pinguje Discord po znalezieniu
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
@@ -134,7 +134,7 @@
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '4.7';
+  const WERSJA = '4.8';
 
   /* =====================================================================
    *  1. CONFIG
@@ -1381,30 +1381,66 @@
     login() {
       const swiat = this.world();
       const nick = String((STORE.data.nick || '')).toLowerCase();
-      let karty = [];
+      let wszystkie = [];
       try {
-        karty = Array.prototype.slice.call(
+        wszystkie = Array.prototype.slice.call(
           document.querySelectorAll('#js-login-box .select-char, .charc, .character-item, .relogger__one-character'));
-      } catch (e) { karty = []; }
+      } catch (e) { wszystkie = []; }
+
+      // Zmierzone 07.10 na www.margonem.pl: na stronie sa DWA zestawy
+      // kart postaci i wygladaja podobnie, ale tylko jeden dziala:
+      //
+      //   1) `.charc` wewnatrz `.charlist` - MA data-world, data-nick,
+      //      data-id, czyli wyglada na wlasciwa. Ale jest NIEWIDOCZNY:
+      //      0x0 px. Klik nic nie robi.
+      //   2) `#js-login-box .select-char` - prawdziwa karta, 294x73 px,
+      //      ale BEZ atrybutow data-*.
+      //
+      // Sama kolejnosc selektorow nie wystarczy - querySelectorAll
+      // zwraca elementy w kolejnosci DOKUMENTU, nie selektora, wiec
+      // niewidoczna `.charc` wygrywala i logowanie konczylo sie
+      // klikiem w 0x0 px. Odrzucamy wszystko, co nie ma rozmiaru.
+      let karty = wszystkie.filter(function (k) {
+        try {
+          const r = k.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        } catch (e) { return false; }
+      });
+      if (!karty.length) karty = wszystkie;
 
       const opis = function (k) {
         const n = k.getAttribute && k.getAttribute('data-nick');
         return (n ? n : (k.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40));
       };
+      const nickWKarcie = function (k) {
+        const n = (k.getAttribute && k.getAttribute('data-nick') || '').toLowerCase();
+        if (n) return n;
+        // Widoczna karta nie ma data-nick, ale nick jest na niej
+        // pierwszy: "Astralny Kruk Mag, lvl: 64 Swiat: Gefion".
+        return String(k.textContent || '').toLowerCase().indexOf(nick);
+      };
       const wSwiecie = function (k) {
+        // Na stronie logowania swiatu nie da sie odczytac z hosta
+        // (www.margonem.pl -> world() zwraca "nieznany"), wiec swiat
+        // przesta tu byc kryterium - inaczej nie wybralibysmy zadnej karty.
+        if (swiat === 'nieznany' || !swiat) return true;
         const w = (k.getAttribute && k.getAttribute('data-world') || '').toLowerCase();
         if (w) return w === swiat;
         return String(k.textContent || '').toLowerCase().indexOf(swiat) >= 0;
       };
 
       let wybrana = null;
-      for (let i = 0; i < karty.length; i++) {
-        if (!wSwiecie(karty[i])) continue;
-        const n = (karty[i].getAttribute && karty[i].getAttribute('data-nick') || '').toLowerCase();
-        if (nick && n && n !== nick) continue;
-        wybrana = karty[i];
-        break;
+      // 1) nick z ostatniej sesji - jedyne kryterium, ktore na stronie
+      //    logowania na pewno dziala (karta nie ma atrybutow).
+      if (nick) {
+        for (let i = 0; i < karty.length; i++) {
+          if (nickWKarcie(karty[i]) >= 0 || nickWKarcie(karty[i]) === nick) {
+            wybrana = karty[i];
+            break;
+          }
+        }
       }
+      // 2) swiat
       if (!wybrana) {
         for (let i = 0; i < karty.length; i++) {
           if (wSwiecie(karty[i])) { wybrana = karty[i]; break; }
@@ -1418,6 +1454,16 @@
         // pojawi, probujemy prawdziwego kliku przez rozszerzenie
         // "Trusted Events" (GAME.trustedClick).
         const opisKarty = opis(wybrana);
+        // Logujemy, w co klikamy i czy w ogole da sie w to trafic.
+        // Niewidoczna karta to znany sposob na ciche niepowodzenie.
+        let widoczna = false;
+        try {
+          const r = wybrana.getBoundingClientRect();
+          widoczna = r.width > 0 && r.height > 0;
+        } catch (e) { widoczna = false; }
+        if (!widoczna) {
+          LOG.warn('Logowanie: karta "' + opisKarty + '" ma 0x0 px - klik nie zadziala. To znany problem z .charc.');
+        }
         wybrana.click();
         if (this.trustedDostepne()) {
           const prostokat = wybrana.getBoundingClientRect();
@@ -1452,7 +1498,7 @@
       return { ok: false, ileKart: karty.length, swiat: swiat };
     },
 
-        // ---------------------------------------------------------------
+    // ---------------------------------------------------------------
     //  KLIKNIECIA "TRUSTED"
     //
     //  Gra ignoruje programowe klikniecia (`isTrusted` = false).
@@ -5971,9 +6017,20 @@ const CSS_HEROS_HUNTER = [
     // i wygladalo to jak "bot w ogole nie dziala".
     if (!wRamceGra()) {
       const t0 = Date.now();
+      let ostrzeżono = false;
       (function czekajNaGre() {
         if (wRamceGra()) { buduj(); return; }
-        if (Date.now() - t0 > 180000) return;   // 3 minuty i odpuszczamy
+        if (!ostrzeżono && Date.now() - t0 > 30000) {
+          ostrzeżono = true;
+          // Bez tego skrypt wyglada jak martwy: panelu nie ma, logu nie ma,
+          // a uzytkownik nie ma skad zobaczyc, ze wystarczy sie zalogowac.
+          LOG.warn('Czekam na logowanie - brak silnika gry. Zaloguj sie, bot ruszy sam.');
+        }
+        // Bez limitu czasu. Wczesniej bylo 180 s i pozniej skrypt cicho
+        // przestawal czekac - a captche i logowanie uzytkownik robi
+        // recznie, wiec 3 minuty to calkiem normalne. Po przekroczeniu
+        // limitu panelu nie bylo w ogole i jedynym wyjsciem byl F5.
+        // Petla sama nie kosztuje nic i ginie razem ze strona.
         setTimeout(czekajNaGre, 400);
       })();
       return;
