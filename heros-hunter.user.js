@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      4.12
-// @description  Szuka herosow, obchodzi ich resp'y, pinguje Discord po znalezieniu
+// @version      4.13
+// @description  szuka heros
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @match        https://margonem.pl/*
@@ -134,7 +134,7 @@
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '4.12';
+  const WERSJA = '4.13';
 
   /* =====================================================================
    *  1. CONFIG
