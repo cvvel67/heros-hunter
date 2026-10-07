@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      4.2
+// @version      4.3
 // @description  Obchodzi respy wybranego herosa, pinguje Discord po znalezieniu
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
@@ -134,7 +134,7 @@
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '4.2';
+  const WERSJA = '4.3';
 
   /* =====================================================================
    *  1. CONFIG
@@ -334,9 +334,16 @@
         img: 'https://micc.garmory-cdn.cloud/obrazki/npc/her/mnich-zly2.gif',
         atakPoMin: 5,
         route: [
+          // Kolejnosc i punkty DOKLADNIE jak lista gracza (06.10).
+          // Wczesniej punkty na kilku mapach byly posortowane rosnaco
+          // po x - ten sam zestaw, ale inna kolejność, przez co bot
+          // chodzil zigzagiem i omijal respa ("pojebałes respy").
+          // Dodatkowo dwa nadmiarowe punkty przyszly z innej mapy
+          // przy przepisywaniu trasy (patrz 150 i 140 ponizej).
           { id: 8, spawns: [{ x: 6, y: 46 }] },
 
-          { id: 38, spawns: [{ x: 13, y: 26 }, { x: 22, y: 53 }, { x: 80, y: 33 }, { x: 90, y: 9 }, { x: 92, y: 50 }] },
+          // Uroczysko: wchodzimy od 92,50
+          { id: 38, spawns: [{ x: 92, y: 50 }, { x: 80, y: 33 }, { x: 90, y: 9 }, { x: 22, y: 53 }, { x: 13, y: 26 }] },
 
           { id: 814, spawns: [{ x: 13, y: 16 }] },
           { id: 815, spawns: [{ x: 25, y: 20 }, { x: 35, y: 9 }, { x: 55, y: 17 }] },
@@ -349,32 +356,36 @@
 
           {
             id: 150,
+            // 14 punktow. Wczesniej bylo 15 - nadmiarowy 58,41 nie
+            // wystepuje w liscie gracza.
             spawns: [
-              { x: 6, y: 34 }, { x: 17, y: 15 }, { x: 25, y: 24 }, { x: 26, y: 49 }, { x: 38, y: 34 },
-              { x: 41, y: 5 }, { x: 47, y: 13 }, { x: 48, y: 60 }, { x: 55, y: 50 }, { x: 58, y: 41 },
-              { x: 64, y: 34 }, { x: 66, y: 48 }, { x: 79, y: 22 }, { x: 86, y: 36 }, { x: 89, y: 51 },
+              { x: 41, y: 5 }, { x: 17, y: 15 }, { x: 25, y: 24 }, { x: 47, y: 13 }, { x: 38, y: 34 },
+              { x: 6, y: 34 }, { x: 26, y: 49 }, { x: 48, y: 60 }, { x: 55, y: 50 }, { x: 66, y: 48 },
+              { x: 89, y: 51 }, { x: 86, y: 36 }, { x: 79, y: 22 }, { x: 64, y: 34 },
             ],
           },
 
           { id: 6473, spawns: [{ x: 18, y: 12 }, { x: 19, y: 16 }] },
-          { id: 6474, spawns: [{ x: 12, y: 19 }, { x: 33, y: 10 }, { x: 51, y: 17 }, { x: 52, y: 43 }] },
-          { id: 6475, spawns: [{ x: 5, y: 15 }, { x: 28, y: 42 }, { x: 34, y: 13 }, { x: 34, y: 29 }, { x: 45, y: 49 }] },
+          { id: 6474, spawns: [{ x: 52, y: 43 }, { x: 51, y: 17 }, { x: 33, y: 10 }, { x: 12, y: 19 }] },
+          { id: 6475, spawns: [{ x: 34, y: 13 }, { x: 5, y: 15 }, { x: 34, y: 29 }, { x: 28, y: 42 }, { x: 45, y: 49 }] },
 
           { id: 6473, pass: true },
           { id: 150, pass: true },
 
           { id: 176, spawns: [{ x: 20, y: 52 }, { x: 37, y: 41 }, { x: 58, y: 13 }] },
           { id: 4582, pass: true },
-          { id: 4550, spawns: [{ x: 17, y: 40 }, { x: 25, y: 35 }, { x: 44, y: 56 }] },
-          { id: 4262, spawns: [{ x: 13, y: 44 }, { x: 23, y: 18 }, { x: 36, y: 33 }] },
+          { id: 4550, spawns: [{ x: 25, y: 35 }, { x: 44, y: 56 }, { x: 17, y: 40 }] },
+          { id: 4262, spawns: [{ x: 23, y: 18 }, { x: 36, y: 33 }, { x: 13, y: 44 }] },
           { id: 179, pass: true },
 
-          // w Mrocznym Przesmyku (42,34) pomijamy - wycofany z listy
           {
             id: 140,
+            // 8 punktow. Wczesniej bylo 9 - nadmiarowy 15,51 pochodzi
+            // z listy Zapomnianego Szlaku (ten sam blad co 58,41 wyzej,
+            // tylko zdazylem go wtedy zlapac).
             spawns: [
-              { x: 15, y: 51 }, { x: 18, y: 7 }, { x: 30, y: 24 }, { x: 30, y: 59 }, { x: 42, y: 2 },
-              { x: 42, y: 16 }, { x: 49, y: 50 }, { x: 56, y: 24 }, { x: 59, y: 54 },
+              { x: 49, y: 50 }, { x: 59, y: 54 }, { x: 30, y: 24 }, { x: 42, y: 2 },
+              { x: 18, y: 7 }, { x: 42, y: 16 }, { x: 56, y: 24 }, { x: 30, y: 59 },
             ],
           },
         ],
