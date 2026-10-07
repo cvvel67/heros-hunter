@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      4.8
+// @version      4.9
 // @description  Obchodzi respy wybranego herosa, pinguje Discord po znalezieniu
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
@@ -134,7 +134,7 @@
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '4.8';
+  const WERSJA = '4.9';
 
   /* =====================================================================
    *  1. CONFIG
@@ -1531,119 +1531,139 @@
       return null;
       },
 
-        trustedDostepne() { return !!this.trustedApi(); },
+    trustedDostepne() { return !!this.trustedApi(); },
 
-        // Prawdziwy klik w piksele ekranu. Promise, bo rozszerzenie
-        // odpowiada asynchronicznie - bez tego skrypt wiedzialby o wyniku
-        // dopiero po kolejnych sekundach, a to juz nie wiazlo sie z logiem.
-        trustedClick(x, y, button) {
-          const api = this.trustedApi();
-          if (!api) return Promise.resolve({ ok: false, powod: 'brak rozszerzenia Trusted Events' });
-          const STR = STRONA;
-          return new Promise(function (resolve) {
-            const id = 'hh-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
-            let gotowe = false;
-            const koniec = function (wynik) {
-              if (gotowe) return;
-              gotowe = true;
-              clearTimeout(timer);
-              STR.removeEventListener('__TRUSTED_EVENT_RESPONSE', sluchaj);
-              resolve(wynik);
-            };
-            const sluchaj = function (e) {
-              const d = (e && e.detail) || {};
-              if (d._callbackId !== id) return;
-              const r = d.response || {};
-              koniec({ ok: !!r.success, powod: r.error || null });
-            };
-            const timer = setTimeout(function () {
-              koniec({ ok: false, powod: 'brak odpowiedzi Trusted Events' });
-            }, 3000);
-            STR.addEventListener('__TRUSTED_EVENT_RESPONSE', sluchaj);
-            try {
-              STR.dispatchEvent(new STR.CustomEvent('__TRUSTED_EVENT', {
-                detail: {
-                  _callbackId: id, action: 'click',
-                  x: Math.round(Number(x)), y: Math.round(Number(y)),
-                  button: button || 'left', clickCount: 1,
-                },
-              }));
-            } catch (e) {
-              koniec({ ok: false, powod: 'wyjatek: ' + e.message });
+    // Prawdziwy klik w piksele ekranu. Promise, bo rozszerzenie
+    // odpowiada asynchronicznie - bez tego skrypt wiedzialby o wyniku
+    // dopiero po kolejnych sekundach, a to juz nie wiazlo sie z logiem.
+    trustedClick(x, y, button) {
+      const api = this.trustedApi();
+      if (!api) return Promise.resolve({ ok: false, powod: 'brak rozszerzenia Trusted Events' });
+      const STR = STRONA;
+      return new Promise(function (resolve) {
+        const id = 'hh-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+        let gotowe = false;
+        const koniec = function (wynik) {
+          if (gotowe) return;
+          gotowe = true;
+          clearTimeout(timer);
+          STR.removeEventListener('__TRUSTED_EVENT_RESPONSE', sluchaj);
+          resolve(wynik);
+        };
+        const sluchaj = function (e) {
+          const d = (e && e.detail) || {};
+          if (d._callbackId !== id) return;
+          const r = d.response || {};
+          koniec({ ok: !!r.success, powod: r.error || null });
+        };
+        const timer = setTimeout(function () {
+          koniec({ ok: false, powod: 'brak odpowiedzi Trusted Events' });
+        }, 3000);
+        STR.addEventListener('__TRUSTED_EVENT_RESPONSE', sluchaj);
+        try {
+          STR.dispatchEvent(new STR.CustomEvent('__TRUSTED_EVENT', {
+            detail: {
+              _callbackId: id, action: 'click',
+              x: Math.round(Number(x)), y: Math.round(Number(y)),
+              button: button || 'left', clickCount: 1,
+            },
+          }));
+        } catch (e) {
+          koniec({ ok: false, powod: 'wyjatek: ' + e.message });
+        }
+      });
+    },
+
+    // Kafel mapy (x,y) -> piksele na canvasie.
+    //
+    // Kafel to 32x32 - gra trzyma to w CFG.tileSize, my liczymy z
+    // map.width / map.d.x (ten sam wynik: 2048/64 = 32).
+    //
+    // POCZATEK WIDOCZNEGO OBSZARU bierzemy z Engine.map.getMinX()/getMinY(),
+    // a NIE ze srodka canvasu. Srodek byl bledny: zakladalem, ze kamera
+    // jest wycentrowana na postaci, a jest przesuwana z opoznieniem za nia.
+    // Zmierzone 07.10 na mapie 150, postac 23,13, canvas 290x766:
+    //     moj wzor (srodek)      -> piksel 401,443
+    //     widok wedlug getMinX  -> piksel 385,452
+    // Blad 16 px w poziomie = pol kafla, czyli klik trafia w sasiada, nie
+    // w cel. getMinX() = 18.97, getMaxX() = 28.03, a 28.03-18.97 = 9.06
+    // = 290/32 - te dwie liczby opisuja dokladnie widoczny obszar.
+    tileToScreen(x, y) {
+      try {
+        let canvas = null;
+        try {
+          canvas = document.getElementById('GAME_CANVAS');
+          if (!canvas) {
+            // Bez ID szukamy najwiekszego WIDOCZNEGO canvasu. Zmierzone
+            // 07.10: na stronie jest 188 canvasow, wiekszosc to niewidoczne
+            // ikony 32x32, a `canvas` jako selektor trafial w pierwszy z
+            // nich - 0x0 px i zupelnie nie ten.
+            let naj = null;
+            const kand = document.querySelectorAll('canvas');
+            for (let i = 0; i < kand.length; i++) {
+              const kr = kand[i].getBoundingClientRect();
+              if (!kr.width || !kr.height) continue;
+              if (!naj || kr.width * kr.height > naj.area) naj = { el: kand[i], area: kr.width * kr.height };
             }
-          });
-        },
-
-        // Kafel mapy (x,y) -> piksele na canvasie. Rzut izometryczny:
-        // kamera jest wycentrowana na postaci, kafel ma tileWidth x tileHeight.
-        tileToScreen(x, y) {
-          try {
-            const me = STRONA.Engine && STRONA.Engine.hero && STRONA.Engine.hero.d;
-            const mapaDane = (STRONA.Engine && STRONA.Engine.map && STRONA.Engine.map.d) || {};
-            let canvas = null;
-            try {
-              canvas = document.getElementById('GAME_CANVAS');
-              if (!canvas) {
-                // Bez ID szukamy najwiekszego WIDOCZNEGO canvasu. Zmierzone
-                // 07.10: na stronie jest 188 canvasow, wiekszosc to niewidoczne
-                // ikony 32x32, a `canvas` jako selektor trafial w pierwszy z
-                // nich - 0x0 px i zupelnie nie ten.
-                let naj = null;
-                const kand = document.querySelectorAll('canvas');
-                for (let i = 0; i < kand.length; i++) {
-                  const kr = kand[i].getBoundingClientRect();
-                  if (!kr.width || !kr.height) continue;
-                  if (!naj || kr.width * kr.height > naj.area) naj = { el: kand[i], area: kr.width * kr.height };
-                }
-                canvas = naj ? naj.el : null;
-              }
-            } catch (e) { canvas = null; }
-            if (!canvas || !me) return null;
-            const r = canvas.getBoundingClientRect();
-            if (!r.width || !r.height) return null;
-            // Rozmiar kafla: mapa ma wymiar w kafelkach (d.x, d.y) i w
-            // pikselach (map.width, map.height). Zmierzone 07.10 na mapie 38:
-            // 96x64 kafli, 3072x2048 px  ->  kafel 32x32. Domyslne 48x24
-            // z wklejonego kodu bylo zle i dalo by kafle obok celu.
-            let tileW = 32;
-            let tileH = 32;
-            const mapaGry = (STRONA.Engine && STRONA.Engine.map) || {};
-            const dane = mapaDane;
-            if (mapaGry.width && dane.x) tileW = mapaGry.width / dane.x;
-            else if (dane.tileWidth) tileW = dane.tileWidth;
-            if (mapaGry.height && dane.y) tileH = mapaGry.height / dane.y;
-            else if (dane.tileHeight) tileH = dane.tileHeight;
-            const dx = Number(x) - Number(me.x);
-            const dy = Number(y) - Number(me.y);
-            const px = r.left + r.width / 2 + (dx - dy) * tileW / 2;
-            const py = r.top + r.height / 2 + (dx + dy) * tileH / 2;
-            if (px < r.left || px > r.right || py < r.top || py > r.bottom) return null;
-            return { x: Math.round(px), y: Math.round(py) };
-          } catch (e) { return null; }
-        },
-
-        // Klik w kafel. Najpierw prawdziwy (jak jest rozszerzenie), a jak
-        // nie ma - autoGoTo, ktore w calym skrypcie jest glowna droga ruchu.
-        clickTile(x, y) {
-          const self = this;
-          const punkt = this.tileToScreen(x, y);
-          if (this.trustedDostepne() && punkt) {
-            return this.trustedClick(punkt.x, punkt.y).then(function (r) {
-              if (r.ok) return { via: 'trusted' };
-              if (typeof STRONA.Engine.hero.autoGoTo === 'function') {
-                STRONA.Engine.hero.autoGoTo({ x: x, y: y }, false);
-                return { via: 'autoGoTo', powod: r.powod };
-              }
-              return { via: null, powod: r.powod };
-            });
+            canvas = naj ? naj.el : null;
           }
+        } catch (e) { canvas = null; }
+        if (!canvas) return null;
+        const r = canvas.getBoundingClientRect();
+        if (!r.width || !r.height) return null;
+
+        const mapaGry = (STRONA.Engine && STRONA.Engine.map) || {};
+        const dane = mapaDane;
+        let tileW = 32;
+        let tileH = 32;
+        if (mapaGry.width && dane.x) tileW = mapaGry.width / dane.x;
+        else if (dane.tileWidth) tileW = dane.tileWidth;
+        if (mapaGry.height && dane.y) tileH = mapaGry.height / dane.y;
+        else if (dane.tileHeight) tileH = dane.tileHeight;
+
+        const minX = mapaGry.getMinX ? mapaGry.getMinX() : null;
+        const minY = mapaGry.getMinY ? mapaGry.getMinY() : null;
+        let px, py;
+        if (minX !== null && minY !== null && isFinite(minX) && isFinite(minY)) {
+          px = r.left + (Number(x) - minX) * tileW;
+          py = r.top + (Number(y) - minY) * tileH;
+        } else {
+          // Bez widocznego obszaru zostaje stary wzor. Zle, ale lepszy niz
+          // brak piksela - a dokladnosc i tak nie jest tu krytyczna.
+          const me = STRONA.Engine && STRONA.Engine.hero && STRONA.Engine.hero.d;
+          if (!me) return null;
+          const dx = Number(x) - Number(me.x);
+          const dy = Number(y) - Number(me.y);
+          px = r.left + r.width / 2 + (dx - dy) * tileW / 2;
+          py = r.top + r.height / 2 + (dx + dy) * tileH / 2;
+        }
+        if (px < r.left || px > r.right || py < r.top || py > r.bottom) return null;
+        return { x: Math.round(px), y: Math.round(py) };
+      } catch (e) { return null; }
+    },
+
+    // Klik w kafel. Najpierw prawdziwy (jak jest rozszerzenie), a jak
+    // nie ma - autoGoTo, ktore w calym skrypcie jest glowna droga ruchu.
+    clickTile(x, y) {
+      const self = this;
+      const punkt = this.tileToScreen(x, y);
+      if (this.trustedDostepne() && punkt) {
+        return this.trustedClick(punkt.x, punkt.y).then(function (r) {
+          if (r.ok) return { via: 'trusted' };
           if (typeof STRONA.Engine.hero.autoGoTo === 'function') {
             STRONA.Engine.hero.autoGoTo({ x: x, y: y }, false);
-            return Promise.resolve({ via: 'autoGoTo' });
+            return { via: 'autoGoTo', powod: r.powod };
           }
-          void self;
-          return Promise.resolve({ via: null, powod: 'brak trusted API i autoGoTo' });
-        },
+          return { via: null, powod: r.powod };
+        });
+      }
+      if (typeof STRONA.Engine.hero.autoGoTo === 'function') {
+        STRONA.Engine.hero.autoGoTo({ x: x, y: y }, false);
+        return Promise.resolve({ via: 'autoGoTo' });
+      }
+      void self;
+      return Promise.resolve({ via: null, powod: 'brak trusted API i autoGoTo' });
+    },
 
     logout() {
       const el = document.querySelector('a[href*="logout"], .logout, #logout');
