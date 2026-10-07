@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      4.10
+// @version      4.11
 // @description  Obchodzi respy wybranego herosa, pinguje Discord po znalezieniu
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
@@ -134,7 +134,7 @@
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '4.10';
+  const WERSJA = '4.11';
 
   /* =====================================================================
    *  1. CONFIG
@@ -1940,7 +1940,19 @@
         const raw = GM_getValue(this.KEY, null);
         if (raw) {
           const d = JSON.parse(raw);
+          // Najpierw klucze znane - maja wartosc domyslna.
           for (const k of Object.keys(this.data)) if (d[k] !== undefined) this.data[k] = d[k];
+          // Potem reszte. Bez tego kazdy klucz, ktorego NIE MA w domyslnych,
+          // byl cicho gubiony przy wczytaniu, chociaż save() zapisywal go
+          // poprawnie. Zmierzone 07.10: `uiPos` (pozycja panelu po
+          // przeciagnieciu) zapisywal sie i ginął - panel wracal w prawy
+          // dolny rog po kazdym F5. Ten sam los spotkal `killed` i
+          // `respawnSamples`, czyli liczniki smierci i probek respow.
+          for (const k of Object.keys(d)) {
+            if (this.data[k] === undefined && d[k] !== null && typeof d[k] === 'object') {
+              this.data[k] = d[k];
+            }
+          }
         }
       } catch (e) { /* pusto */ }
       return this.data;
