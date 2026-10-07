@@ -11,6 +11,9 @@ _bridge.js
 _bridge.config.json
 _bridge.log
 _bridge.err.log
+_bridge.out
+_verifyTrasa.js
+_pokazTrasa.js
 _*.out
 _t.js
 _inject_view.txt
