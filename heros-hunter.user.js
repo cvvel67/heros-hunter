@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      4.3
+// @version      4.4
 // @description  Obchodzi respy wybranego herosa, pinguje Discord po znalezieniu
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
@@ -134,7 +134,7 @@
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '4.3';
+  const WERSJA = '4.4';
 
   /* =====================================================================
    *  1. CONFIG
@@ -699,16 +699,31 @@
     dead() {
       if (!this.ready()) return false;
       const p = this.hpPercent();
-      // `null` = nie wiemy (pasek sie nie renderuje, np. ekran logowania).
-      // Wtedy NIE wołamy tego gałęzi smierci: jej skutek (wylogowanie
-      // i 120 minut czekania) jest o wiele droższy niż brak wykrycia
-      // śmierci. Sprawdzamy wtedy Engine, a jak tam tez nie ma - mamy
-      // dwa niezależne odczyty, ze postac żyje.
+      //
+      // Zmierzone 07.10 na zywеj postaci: HP 10/124, postac stoi,
+      // a duzy kula na dole pisze "0%". `.hp-indicator .hpp .value`
+      // jest RENDEROWANY (35x27 px), wiec w 3.7 uwazaliśmy go za
+      // wiarygodny - i zglaszaliśmy smierc zywej postaci. Efekt: bot
+      // wracal do Ithanu i czekal 120 minut na zyjacej postaci.
+      // Ten sam objaw, ktory gracz zglosil jako "nie idzie".
+      //
+      // W tej samej chwili `Engine.dead` mowi false. Wczoraj na
+      // naprawde martwej postaci (0 HP, lezala w Ithan) pasek tez
+      // mowil 0% i log zapisal "Postać nieżyje" - oba sygnaly sie
+      // zgadzaly, wiec bot mial wtedy racje.
+      //
+      // Wniosek: sama cyfra z kuli jest za slaba, zeby zatrzymac bota.
+      // Martwice oglaszamy tylko gdy gra sama to potwierdza
+      // (`Engine.dead === true`) LUB gdy pasek mowi <= 0 i nie ma
+      // sprzecznego zaprzeczenia z Engine.
+      const silnik = Engine.dead;
+      if (silnik === false) return false;
+      if (silnik === true && p !== null && p > 0) return false;
       if (p !== null) return p <= 0;
       const d = Engine.hero && Engine.hero.d;
       if (d && d.hp !== undefined && d.maxhp !== undefined) return d.hp <= 0;
       if (d && d.id) return false;
-      return Engine.dead === true;
+      return silnik === true;
     },
 
     cords() {
