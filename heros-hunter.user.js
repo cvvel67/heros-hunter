@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      0.16
+// @version      0.17
 // @description  szuka heros
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
@@ -134,7 +134,7 @@
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '0.16';
+  const WERSJA = '0.17';
 
   /* =====================================================================
    *  1. CONFIG
@@ -5257,13 +5257,24 @@ const CSS_HEROS_HUNTER = [
       // POINT_LIMIT_MS (60 s) na każdym punkcie.
       if (pos && Math.abs(pos[0] - pt.x) <= 1 && Math.abs(pos[1] - pt.y) <= 1) {
         const ostatni = (i + 1) >= list.length;
+        // Log PRZED sprawdzeniem ostatniego (blad 08.10).
+        //
+        // Wczesniej ostatni punkt mial obsluge w osobnej galezi:
+        //   if (ostatni) this.nextMap();
+        //   else { LOG.info('Resp ' + (i+1) + ...); walk(nastepny); }
+        // przez co `Resp N/N` nigdy nie byl wypisywany - na mapie
+        // wielopunktowej ostatni resp wygladal jak nieodwiedzony:
+        //   Stukot Widmowych Kol: "3/4: 23,61" i od razu kolejna mapa,
+        // a punkt 48,72 byl cicho odwiedzany bez sladu w logu (08.10,
+        // zgloszone przez gracza: "nie sprawdzil calego stukotu").
+        LOG.info('Resp ' + (i + 1) + '/' + list.length + ': ' + pt.x + ',' + pt.y);
         this.zakonczPunkt();
         if (ostatni) {
+          LOG.ok(MAPS.label(map) + ' obejdzie (' + list.length + ' respa).');
           this.nextMap();
         } else {
           const nastepny = list[i + 1];
           STORE.set({ pointSince: now });
-          LOG.info('Resp ' + (i + 1) + '/' + list.length + ': ' + pt.x + ',' + pt.y);
           // od razu ruszamy do następnego - bez czekania na tick
           this.walk(nastepny.x, nastepny.y);
         }
@@ -5277,9 +5288,13 @@ const CSS_HEROS_HUNTER = [
       }
 
       // limit czasu na jeden resp
+      //
+      // UWAGA: bez tego warunku punkt byl wypisywany podwojnie - raz
+      // przy wypisaniu i raz po dotarciu. W logu widać było
+      // "Resp 1/4: 20,28" dwa razy z rzędu, co wyglądało jak zacięcie
+      // (08.10).
       if (STORE.data.pointSince === 0) {
         STORE.set({ pointSince: now });
-        LOG.info('Resp ' + (i + 1) + '/' + list.length + ': ' + pt.x + ',' + pt.y);
         this.walk(pt.x, pt.y);
         return;
       }
