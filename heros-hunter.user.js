@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      0.14
+// @version      0.16
 // @description  szuka heros
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
@@ -134,7 +134,7 @@
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '0.14';
+  const WERSJA = '0.16';
 
   /* =====================================================================
    *  1. CONFIG
@@ -180,6 +180,11 @@
     // Koniec pracy na jednym punkcie respu (ms). Przechodzimy przez niego,
     // nie stoimy - ale dystanse bywają 40 kafelkow, więc limit musi być realny.
     POINT_LIMIT_MS: 60000,
+
+    // Ile razy z rzedu bot moze przeskoczyc krok, ktorego numeru mapy
+    // jeszcze nie zna, zanim uzna, ze trasa nie ruszy. Bez tego limitu
+    // przeskakiwanie bylo nieskonczone (08.10: 52 kroki w 9 sekund).
+    SKIP_LIMIT: 6,
 
     // Odstęp między wywołaniami autoGoTo. autoGoTo ignoruje wywołania
     // w trakcie animacji kafelka, więc pytamy raz na jakiś czas.
@@ -297,38 +302,105 @@
         zwój: 'Zwój przywołania drużyny na herosa Złodziej',
         img: 'https://micc.garmory-cdn.cloud/obrazki/npc/her/zlodziej.gif',
         atakPoMin: 5,
-        // route: [] - z powodu opisanego wyzej. Nie wklejam spawnow,
-        // bo powstalaby trasa widoczna w panelu, a nieprzechodzaca.
-        // Pozycje ponizej to dane zrodlowe do przepisania w route po
-        // uzupelnieniu grafu.
+        // Baza tego herośw. Złodziej mieszka w Eder (33) - po obchodzie
+        // wraca tutaj i leci pętlę od nowa. NIE wraca do Ithan, bo tam
+        // mieszka Zły Przewodnik (zadanie gracza 08.10). Bez tego bot
+        // po obchodzie szedł do Ithan, a Eder nie ma bramy do Ithan,
+        // więc stawał w połowie drogi.
+        baza: 'Eder',
+
+        // ── TRASA ZLODZIEJA, 08.10 ──
         //
-        //   Eder (33) - bez spawnow na samej mapie, tylko wnetrza:
-        //    162 Dom Erniego                       (6,7)
-        //   2010 Dom Erniego p.1                   (6,5)
-        //    157 Dom Artenii i Tafina               (5,5)
-        //   2011 Dom Artenii i Tafina - piwnica     (11,12)
-        //   2016 Dom Etrefana - pracownia          (6,12)
-        //   2018 Dom Etrefana p.2                  (5,6)
-        //    221 Dom Mrocznego Zgrzyta             (10,5)
-        //   2341 Dom Mikliniosa p.1                (9,5)
-        //   2342 Dom Mikliniosa - przyziemie       (8,10)
-        //   2349 Pracownia Bonifacego p.1          (5,6)
-        //    43 Siedziba Kultystow                 (11,11)
-        //   Fort Eder (244):
-        //   244  Fort Eder                         (59,60)
-        //    247  Fortyfikacja                     (7,17)
-        //    249  Fortyfikacja p.2                 (10,4)
-        //    251  Fortyfikacja p.4                 (11,14)
-        //    252  Fortyfikacja p.5                 (10,10)
-        //   2350 Ciemnica Szubrawcow p.1 - sala 1  (8,14)
-        //   2351 Ciemnica Szubrawcow p.1 - sala 2  (13,5)
-        //   2352 Ciemnica Szubrawcow p.1 - sala 3  (45,12) (51,53)
-        //   poza miastem:
-        //   2308 Stary Kupiecki Trakt   (8,8) (51,12) (55,44) (55,92)
-        //   2324 Stukot Widmowych Kol   (5,5) (20,28) (23,61) (48,72)
-        //   4151 Wertepy Rzezimieszkow  (12,55) (53,12) (53,51)
-        //   4528 Chata szabrownikow     (6,4)
-        route: [],
+        // Wpisana po NAZWACH map, bo gracz podal nazwy a numerow nie
+        // mial dla 6 z 24 map. Skrypt uczy sie numeru przy pierwszym
+        // wejsciu (MAPS.rememberAlias). Numery zmierzone 08.10 na Eder
+        // (silnik gry, bramy na mapie 33):
+        //    162 Dom Erniego          219 Dom Etrefana
+        //    157 Dom Artenii i Tafina  220 Dom Mikliniosa
+        //    2010 Dom Erniego p.1     161 Pracownia Bonifacego
+        //    2011 A i T - piwnica     244 Fort Eder
+        //    43 Siedziba Kultystow    247 Fortyfikacja
+        //    221 Dom Mrocznego Zgrzyta  249 / 251 / 252 kolejne poziomy
+        //    2016 / 2018 / 2341 / 2342 / 2349 wnetrza domow
+        //    2350 / 2351 / 2352 Ciemnica Szubrawcow
+        //    2308 Stary Kupiecki Trakt 2324 Stukot Widmowych Kol
+        //    4151 Wertepy Rzezimieszkow 4528 Chata szabrownikow
+        //
+        // "Nic nie sprawdza" = `pass: true` - przechodzimy przez mape.
+        //
+        // Dwie wspolrzedne roznia sie od margoworld (05.03.2023) i
+        // zostawiamy wersje gracza:
+        //    2352 sala 3: gracz 45,15 (margoworld 45,12)
+        //    4151: gracz 53,12 -> 12,55 -> 53,51 (margoworld 12,55 -> 53,12)
+        route: [
+          // Domy przy Ederze
+          { nazwa: 'Dom Erniego', spawns: [{ x: 6, y: 7 }] },
+          { nazwa: 'Dom Erniego p.1', spawns: [{ x: 6, y: 5 }] },
+          { nazwa: 'Dom Erniego', pass: true },
+          { nazwa: 'Eder', pass: true },
+
+          { nazwa: 'Dom Etrefana', pass: true },
+          { nazwa: 'Dom Etrefana - pracownia', spawns: [{ x: 6, y: 12 }] },
+          { nazwa: 'Dom Etrefana', pass: true },
+          { nazwa: 'Dom Etrefana p.1', pass: true },
+          { nazwa: 'Dom Etrefana p.2', spawns: [{ x: 5, y: 6 }] },
+          { nazwa: 'Dom Etrefana p.1', pass: true },
+          { nazwa: 'Dom Etrefana', pass: true },
+          { nazwa: 'Eder', pass: true },
+
+          { nazwa: 'Pracownia Bonifacego', pass: true },
+          { nazwa: 'Pracownia Bonifacego p.1', spawns: [{ x: 5, y: 6 }] },
+          { nazwa: 'Pracownia Bonifacego', pass: true },
+          { nazwa: 'Eder', pass: true },
+
+          { nazwa: 'Dom Artenii i Tafina', spawns: [{ x: 5, y: 5 }] },
+          { nazwa: 'Dom Artenii i Tafina - piwnica', spawns: [{ x: 11, y: 12 }] },
+          { nazwa: 'Eder', pass: true },
+
+          { nazwa: 'Dom Mikliniosa', pass: true },
+          { nazwa: 'Dom Mikliniosa p.1', spawns: [{ x: 9, y: 5 }] },
+          { nazwa: 'Dom Mikliniosa', pass: true },
+          { nazwa: 'Dom Mikliniosa - przyziemie', spawns: [{ x: 8, y: 10 }] },
+          { nazwa: 'Dom Mikliniosa', pass: true },
+          { nazwa: 'Eder', pass: true },
+
+          { nazwa: 'Siedziba Kultystów', spawns: [{ x: 11, y: 11 }] },
+          { nazwa: 'Eder', pass: true },
+
+          { nazwa: 'Dom Mrocznego Zgrzyta', spawns: [{ x: 10, y: 5 }] },
+          { nazwa: 'Eder', pass: true },
+
+          // Fort Eder i fortyfikacje
+          { nazwa: 'Fort Eder', pass: true },
+          { nazwa: 'Fortyfikacja p.1', pass: true },
+          { nazwa: 'Fortyfikacja', spawns: [{ x: 7, y: 17 }] },
+          { nazwa: 'Fortyfikacja p.1', pass: true },
+          { nazwa: 'Fortyfikacja p.2', spawns: [{ x: 10, y: 4 }] },
+          { nazwa: 'Fortyfikacja p.3', pass: true },
+          { nazwa: 'Fortyfikacja p.4', spawns: [{ x: 11, y: 14 }] },
+          { nazwa: 'Fortyfikacja p.5', spawns: [{ x: 10, y: 10 }] },
+          { nazwa: 'Fortyfikacja p.4', pass: true },
+          { nazwa: 'Fortyfikacja p.3', pass: true },
+          { nazwa: 'Fort Eder', pass: true },
+
+          // Ciemnica Szubrawcow
+          { nazwa: 'Ciemnica Szubrawców p.1 - sala 1', spawns: [{ x: 8, y: 14 }] },
+          { nazwa: 'Ciemnica Szubrawców p.1 - sala 2', spawns: [{ x: 13, y: 15 }] },
+          { nazwa: 'Ciemnica Szubrawców p.1 - sala 3', spawns: [{ x: 45, y: 15 }, { x: 51, y: 53 }] },
+          { nazwa: 'Ciemnica Szubrawców p.1 - sala 2', pass: true },
+          { nazwa: 'Ciemnica Szubrawców p.1 - sala 1', pass: true },
+
+          // Tu dopiero sprawdzamy Fort Eder
+          { nazwa: 'Fort Eder', spawns: [{ x: 59, y: 60 }] },
+
+          // Poza Ederem - koniec petli
+          { nazwa: 'Stary Kupiecki Trakt', spawns: [{ x: 8, y: 8 }, { x: 51, y: 12 }, { x: 55, y: 44 }, { x: 55, y: 92 }] },
+          { nazwa: 'Stukot Widmowych Kół', spawns: [{ x: 20, y: 28 }, { x: 5, y: 5 }, { x: 23, y: 61 }, { x: 48, y: 72 }] },
+          { nazwa: 'Wertepy Rzezimieszków', spawns: [{ x: 53, y: 12 }, { x: 12, y: 55 }, { x: 53, y: 51 }] },
+          { nazwa: 'Chata szabrowników', spawns: [{ x: 6, y: 4 }] },
+          { nazwa: 'Wertepy Rzezimieszków', pass: true },
+          { nazwa: 'Eder', pass: true },
+        ],
       },
 
       // ── HEROS NR 2 ──
@@ -1784,17 +1856,88 @@
     },
 
     // wszystkie kroki trasy AKTYWNEGO herosa, w kolejnosci podanej przez gracza
+    // ---------------------------------------------------------------
+    //  TRASA PO NAZWACH
+    //
+    //  Krok moze byc zapisany na dwa sposoby:
+    //    { nazwa: 'Dom Etrefana', spawns: [...] }   - po nazwie mapy
+    //    { id: 38, spawns: [...] }                  - po numerze mapy
+    //
+    //  Po co? Bo gracz podaje nazwy ("Dom Etrefana"), a numer 219 zna
+    //  tylko silnik gry. Zmierzone 08.10 na Eder: brama nazywa sie
+    //  "Dom Etrefana" i wskazuje `d.id = 219` - obie informacje sa
+    //  w tym samym miejscu. Skrypt przy pierwszym wejsciu zapamietuje
+    //  nazwa -> numer (STORE.data.alias) i juz go nie szuka.
+    //
+    //  Do czasu nauki krok po nazwie ma `id: null`. Taki krok trasa
+    //  pomija, a log mowi ktorej mapy jeszcze nie znamy - inaczej
+    //  bot po cichu stawalby na pustej trasie.
+    // ---------------------------------------------------------------
+
+    // Nazwa kroku -> numer mapy. Najpierw pamiec z gry, potem CONFIG.NAMES.
+    idByName(nazwa) {
+      const klucz = this.plain(nazwa);
+      if (!klucz) return null;
+      const alias = STORE.data.alias || {};
+      if (alias[klucz] !== undefined && alias[klucz] !== null) return Number(alias[klucz]);
+      for (const n in CONFIG.NAMES || {}) {
+        if (this.plain(CONFIG.NAMES[n]) === klucz) return Number(n);
+      }
+      return null;
+    },
+
+    // Zapamietanie nazwy -> numer po wejsciu na mape.
+    // Klucz po `plain()`, bo w grze bywa "Dom Etrefana" albo
+    // "Fortyfikacja p.4 - sala" a w CONFIG inaczej.
+    rememberAlias(id, nazwa) {
+      if (id === null || id === undefined || !nazwa) return;
+      const klucz = this.plain(nazwa);
+      if (!klucz) return;
+      const alias = STORE.data.alias || (STORE.data.alias = {});
+      const n = Number(id);
+      if (alias[klucz] !== n) {
+        alias[klucz] = n;
+        LOG.info('Zapamietano: "' + nazwa + '" to mapa ' + n + '.');
+        STORE.save();
+      }
+    },
+
     all() {
       const out = [];
       const cfg = this.hero();
       const r = (cfg && cfg.route) || [];
       for (let i = 0; i < r.length; i++) {
+        const krok = r[i];
+        let id = null;
+        let nazwa = '';
+        if (krok.nazwa) {
+          nazwa = String(krok.nazwa);
+          id = this.idByName(nazwa);
+        } else if (krok.id !== undefined && krok.id !== null) {
+          id = Number(krok.id);
+          nazwa = CONFIG.NAMES[id] || '';
+        }
         out.push({
-          id: Number(r[i].id),
-          name: CONFIG.NAMES[Number(r[i].id)] || ('mapa ' + r[i].id),
-          spawns: r[i].spawns || [],
-          pass: !!r[i].pass,
+          id: id,
+          nazwa: nazwa,
+          nazwaWpisana: String(krok.nazwa || ''),
+          // Brak numeru = skrypt jeszcze tej mapy nie zna po nazwie.
+          nieznana: id === null,
+          name: (id !== null && CONFIG.NAMES[id]) ? CONFIG.NAMES[id] : (nazwa || ('krok ' + (i + 1))),
+          spawns: krok.spawns || [],
+          pass: !!krok.pass,
         });
+      }
+      return out;
+    },
+
+    // Kroki, ktorych skrypt jeszcze nie umie odwadzic. Zwykle pusto -
+    // wtedy trasa jest gotowa. Jak cos - log mowi czego brak.
+    nieznaneKroki() {
+      const l = this.all();
+      const out = [];
+      for (let i = 0; i < l.length; i++) {
+        if (l[i].nieznana) out.push((i + 1) + '. ' + (l[i].nazwaWpisana || l[i].name));
       }
       return out;
     },
@@ -1825,10 +1968,14 @@
       return null;
     },
 
-    // krok trasy o podanym numerze (0 = pierwszy)
+    // krok trasy o podanym numerze (0 = pierwszy).
+    // Kroki o nieznanym numerze mapy sa POMIJANE - przy pustym id
+    // wszystkie porownania z mapa dalyby false i trasa wygladala
+    // by na skonczona, wiec bot stalby bez logu.
     stepAt(i) {
       const l = this.all();
       if (i < 0 || i >= l.length) return null;
+      if (l[i].id === null) return null;
       return l[i];
     },
 
@@ -1840,8 +1987,6 @@
       for (let i = 0; i < l.length; i++) if (l[i].id === Number(id)) out = l[i];
       return out;
     },
-
-    home() { return { id: CONFIG.HOME.id, name: CONFIG.HOME.name }; },
 
     // Biezaca mapa. ID pierwsze, nazwa jako zapas.
     // Biezaca mapa. Wazne: entry to TYLKO biezacy krok trasy.
@@ -1863,11 +2008,37 @@
       return CONFIG.NAMES[Number(id)] || null;
     },
 
+    // ---------------------------------------------------------------
+    //  BAZA HEROSA
+    //
+    //  Nie kazdy heros wraca do Ithan. Zly Przewodnik tak, bo jego trasa
+    //  zaczyna sie i konczy w Ithan. Zlodziej NIE - mieszka w Eder i
+    //  po obchodzie ma wrocic do Eder i zacząć pętlę od nowa (zadanie
+    //  gracza 08.10).
+    //
+    //  Bez tego bot po obchodzie szedł do Ithan ("wracam do Ithanu"),
+    //  a Eder nie ma bramy do Ithan - wiec stawal w polowie drogi.
+    //
+    //  `home()` bierze baze z wybranego herośw (`baza`), a gdy jej nie
+    //  ma, używa wspólnej CONFIG.HOME (Ithan).
+    // ---------------------------------------------------------------
+    home() {
+      const cfg = this.hero();
+      const baza = cfg && cfg.baza;
+      if (baza) {
+        const id = this.idByName(baza);
+        return { id: id, nazwa: baza };
+      }
+      return { id: CONFIG.HOME.id, name: CONFIG.HOME.name, nazwa: CONFIG.HOME.name };
+    },
+
     isHome(m) {
       if (!m) return false;
       const h = this.home();
-      if (h && m.id !== null && m.id === h.id) return true;
-      return this.plain(m.name) === this.plain(CONFIG.HOME.name);
+      if (h && h.id !== null && h.id !== undefined && m.id !== null
+        && Number(m.id) === Number(h.id)) return true;
+      const cel = this.plain(h ? (h.nazwa || h.name) : '');
+      return !!cel && this.plain(m.name) === cel;
     },
 
     label(m) {
@@ -1929,6 +2100,11 @@
       // na 120 minut zamiast lecieć od nowa od Zniszczonego Opactwa.
       homeReason: null,
       graph: {},
+      // Nazwa mapy -> numer mapy. Uczy sie z bram przy kazdym wejsciu
+      // (MAPS.rememberAlias). Bez tego trasa zapisana po nazwach nie ma
+      // czego porownac z numerem biezacej mapy i wszystkie kroki maja
+      // id = null.
+      alias: {},
       visited: {},
       respawnSamples: [],
       found: 0,
@@ -4247,6 +4423,14 @@ const CSS_HEROS_HUNTER = [
       }
       STORE.data.graph[m.id] = GAME.gateways();
       STORE.save();
+      // Nazwa -> numer. Zmierzone 08.10: brama ma nazwe w `tip[0]`, a
+      // numer w `d.id`. Skrypt uczy sie pary przy kazdym wejsciu na mape.
+      //
+      // UWAGA: `rememberGraph()` jest w BOT, a `rememberAlias()` w MAPS.
+      // Wczesniej bylo tu `this.rememberAlias(...)`, co dawalo wyjątek
+      // "this.rememberAlias is not a function" co sekundę i psuło cały
+      // tick - nazwy map nigdy nie byly zapamietywane.
+      MAPS.rememberAlias(m.id, m.name);
     },
 
     gatewayTo(mapId) {
@@ -4413,8 +4597,171 @@ const CSS_HEROS_HUNTER = [
         this.stepInto(gw);
         return true;
       }
+      // Brama nie ma w grafie - bo jeszcze tam nie byliśmy. Zamiast
+      // ogolnego "nie mam gdzie iść", mówimy JAKIEJ mapy brakuje,
+      // inaczej na 24-mapowej trasie Złodzieja nie wiadomo, gdzie się
+      // zatrzymał. Tryb "odkrywaj" (patrz trybOdkrywania) wtedy
+      // po prostu wybiera najbliższą znaną bramę i jedzie dalej.
+      if (this.trybOdkrywania) {
+        const najblizsza = this.najblizszaZnanaBrama();
+        if (najblizsza) {
+          this.path = null;
+          LOG.info('Nie znam drogi do ' + mapId + ' - jade do ' + najblizsza.nazwa
+            + ' (' + najblizsza.x + ',' + najblizsza.y + '), żeby poznać kolejne bramy.');
+          this.stepInto(najblizsza);
+          return true;
+        }
+      }
       LOG.warn('Nie mam gdzie iść (cel ' + mapId + ').');
       return false;
+    },
+
+    // ---------------------------------------------------------------
+    //  TRYB ODKRYWANIA
+    //
+    //  Bot nie wie, jakie bramy prowadzą do domów przy Ederze ani do
+    //  respa Złodzieja - to są 24 mapy, z których nigdy nie byliśmy.
+    //  Zamiast stać, jedzie do bramy, którą zna, i po każdym wejściu
+    //  zapamiętuje bramy nowej mapy (MAPS.rememberGraph). Za kilka
+    //  przejść graf jest kompletny i bot jedzie normalnie.
+    //
+    //  Włączany ręcznie: HH.optymalizuj(true) albo komendą czatu.
+    //  NIE włącza się sam - chcemy widzieć, kiedy jedzie na ślepo.
+    // ---------------------------------------------------------------
+    trybOdkrywania: false,
+
+    // Najblizszy krok trasy od podanego indeksu, ktorego numer mapy
+    // skrypt juz zna. Zwraca indeks albo null.
+    //
+    // KLUCZOWE (blad z 08.10): sama wiedza "znam te mape" nie wystarcza.
+    // Trasa Złodzieja ma 52 kroki, z czego 30 to powroty do Eder -
+    // i stoimy na Eder. Pierwsza wersja szukala "pierwszego znanego
+    // kroku" i trafiała w Eder, wiec kazdy nieznany krok przeskakiwal
+    // nastepny. W 9 sekund przeskoczla cala trase i wracila do Ithan
+    // (homeReason: "koniecTrasy").
+    //
+    // Poprawka: NIE wolno wrocic do mapy, na ktorej stoimy. Jesli
+    // stoimy na mapie kroku, to ten krok juz sie odbyl - szukamy
+    // dalej. Wyjatek: poczatek trasy (indeks 0), bo tam nie ma
+    // "wlasciwie postojmy" - po prostu startujemy.
+    //
+    // `mapa` to biezaca mapa (obiekt z id). Bez niej dzialamy jak
+    // wczesniej - na samym indeksie.
+    pierwszyZnanyKrokOd(od, mapa) {
+      const l = MAPS.all();
+      const stoiNa = (mapa && mapa.id !== null && mapa.id !== undefined)
+        ? Number(mapa.id) : null;
+      const start = Math.max(0, Number(od) || 0);
+      for (let i = start; i < l.length; i++) {
+        if (l[i].id === null) continue;
+        if (i > start && stoiNa !== null && l[i].id === stoiNa) continue;
+        return i;
+      }
+      return null;
+    },
+
+    // ---------------------------------------------------------------
+    //  BRAMA PO NAZWIE KROKU
+    //
+    //  Bot nie wie, jaki numer ma kolejna mapa z trasy - ale wie JAK
+    //  SIE NAZYWA (to wpisal gracz). A nazwa bramy w grze jest ta sama
+    //  co nazwa mapy docelowej: brama "Dom Erniego" prowadzi do mapy
+    //  "Dom Erniego". Zmierzone 08.10 na Eder.
+    //
+    //  Dlatego szukamy bramy o nazwie kroku, a nie najblizszej bramy
+    //  w ogole. Wersja z 08.10 szukala najblizszej i przez to chodzila
+    //  w kolko Eder -> Magazyn Eder -> Eder -> Magazyn Eder.
+    //
+    //  Dopasowanie po `plain()`, bo w grze bywa "Fort Eder" a w trasie
+    //  "Fort Eder", ale czasem z dopiskiem "<br>(Wymaga klucza)".
+    // ---------------------------------------------------------------
+
+    // Nazwa bramy -> brama z biezacej mapy. `nazwaDocelowa` to nazwa
+    // kroku trasy. Zwraca brame albo null.
+    bramaPoNazwie(nazwaDocelowa) {
+      if (!nazwaDocelowa) return null;
+      const szukany = MAPS.plain(nazwaDocelowa);
+      if (!szukany) return null;
+      const g = GAME.gateways();
+      let najlepsza = null;
+      for (let i = 0; i < g.length; i++) {
+        const nazwa = MAPS.plain(g[i].name);
+        if (!nazwa) continue;
+        // Dokladne trafienie albo jedno jest prefiksem drugiego
+        // ("dom erniego p.1" vs "dom erniego" rozrozniamy, bo wtedy
+        //  wolimy DOKLADNE).
+        const dokladne = nazwa === szukany;
+        const prefiks = nazwa.indexOf(szukany) === 0 || szukany.indexOf(nazwa) === 0;
+        if (!dokladne && !prefiks) continue;
+        if (!najlepsza || (dokladne && !najlepsza.dokladne)) {
+          najlepsza = { brama: g[i], dokladne: dokladne };
+        }
+      }
+      return najlepsza ? najlepsza.brama : null;
+    },
+
+    // Ktory nieznany krok sprobujmy najpierw. Najblizszy w trasie od
+    // biezacego indeksu - czyli kolejny dom przy Ederze, nie byle jaka.
+    nastepnyNieznanyKrokOd(od) {
+      const l = MAPS.all();
+      for (let i = Math.max(0, Number(od) || 0); i < l.length; i++) {
+        if (l[i].id === null) return i;
+      }
+      return null;
+    },
+
+    // Jakakolwiek brama na tej mapie, ktora prowadzi do MAPY Z TRASY.
+    // Uzywane gdy bramy o dokladnej nazwie nie ma - lepiej wejsc w
+    // dowolny dom z trasy niz w srodek lasu.
+    bramaTrasyNaBiezacejMapie() {
+      const l = MAPS.all();
+      const g = GAME.gateways();
+      let najlepsza = null;
+      let najlepszyKrok = Infinity;
+      for (let i = 0; i < l.length; i++) {
+        if (l[i].id === null) continue;
+        const cel = MAPS.plain(l[i].name);
+        if (!cel) continue;
+        for (let j = 0; j < g.length; j++) {
+          const nazwa = MAPS.plain(g[j].name);
+          if (!nazwa) continue;
+          if (nazwa !== cel && nazwa.indexOf(cel) !== 0 && cel.indexOf(nazwa) !== 0) continue;
+          if (i < najlepszyKrok) {
+            najlepszyKrok = i;
+            najlepsza = { brama: g[j], krok: i, nazwa: l[i].name };
+          }
+          break;
+        }
+      }
+      return najlepsza;
+    },
+
+    // Najblizsza brama, ktora prowadzi do mapy ktorej jeszcze nie
+    // odwiedzilismy. Liczymy po odleglosci kafla w linii prostej.
+    najblizszaZnanaBrama() {
+      const pos = GAME.pos();
+      if (!pos) return null;
+      const g = GAME.gateways();
+      let najlepsza = null;
+      let najlepszyKwadrat = Infinity;
+      for (let i = 0; i < g.length; i++) {
+        const b = g[i];
+        const dx = b.x - pos[0];
+        const dy = b.y - pos[1];
+        const kwadrat = dx * dx + dy * dy;
+        if (kwadrat < najlepszyKwadrat) {
+          najlepszyKwadrat = kwadrat;
+          najlepsza = b;
+        }
+      }
+      return najlepsza;
+    },
+
+    setTrybOdkrywania(wlaczyc) {
+      this.trybOdkrywania = !!wlaczyc;
+      LOG.info(wlaczyc
+        ? 'Tryb odkrywania WŁĄCZONY - bot jedzie do nieznanych bram i uczy się grafu.'
+        : 'Tryb odkrywania wyłączony - bot wraca do planowania trasy.');
     },
 
     // Throttle autoGoTo - gra ignoruje wywolania w trakcie animacji kafelka
@@ -4953,19 +5300,49 @@ const CSS_HEROS_HUNTER = [
 
       const all = MAPS.all();
       const n = (STORE.data.routeIndex || 0) + 1;
+
+      // Koniec trasy. NIE przelaczamy sie na nastepnego herosa -
+      // wybierasz jednego i bot szuka go az go znajdzie
+      // (decyzja gracza, 03.10).
       if (n >= all.length) {
-        // Koniec trasy. NIE przelaczamy sie na nastepnego herosa -
-        // wybierasz jednego i bot szuka go az go znajdzie
-        // (decyzja gracza, 03.10).
+        // ...ale tylko jesli faktycznie ja objechalismy. Bot moze
+        // wskoczyc na koniec trasy przez przeskoki nieznanych krokow,
+        // a wtedy "koniec" jest klamra, nie sukcesem (08.10: trasa
+        // zlodzieja "obejdziona" w 5 sekund z 44 nieznanymi mapami).
+        const braki = MAPS.nieznaneKroki();
+        if (braki.length) {
+          LOG.warn('To nie jest koniec trasy - ' + braki.length
+            + ' map jeszcze nie znam. Wracam na poczatek i jade dalej.');
+          STORE.set({ routeIndex: 0 });
+          this.resetGo();
+          if (!this.trybOdkrywania) this.setTrybOdkrywania(true);
+          this.setState('GO');
+          return;
+        }
+        // Powrot do BAZY herośw, nie zawsze do Ithan. Zlodziej mieszka
+        // w Eder i stamtąd zaczyna pętlę (zadanie gracza 08.10).
+        const baza = MAPS.home();
+        const doBazy = baza && baza.id !== null && baza.id !== undefined
+          && Number(all[0].id) !== Number(baza.id);
         LOG.ok('Trasa ' + (MAPS.hero() ? MAPS.hero().nazwa : '') +
-          ' obejdzie - wracam do Ithanu i zaczynam od ' + all[0].name + '.');
+          ' obejdzie - ' + (doBazy
+            ? 'wracam do ' + (baza.nazwa || baza.name) + ' i zaczynam od ' + all[0].name + '.'
+            : 'zaczynam pętlę od ' + all[0].name + '.'));
         STORE.set({ routeIndex: 0 });
-        this.homeReason = 'koniecTrasy';
-        STORE.set({ homeReason: 'koniecTrasy' });
-        this.setState('HOME');
+        if (doBazy) {
+          this.homeReason = 'koniecTrasy';
+          STORE.set({ homeReason: 'koniecTrasy' });
+          this.setState('HOME');
+          return;
+        }
+        // Stoimy już na bazie - nie trzeba nigdzie iść, lecimy od razu.
+        this.skipy = 0;
+        this.resetGo();
+        this.setState('GO');
         return;
       }
       STORE.set({ routeIndex: n });
+      this.skipy = 0;
       this.setState('GO');
     },
 
@@ -4979,12 +5356,19 @@ const CSS_HEROS_HUNTER = [
         return false;
       }
       const obecny = MAPS.hero();
-      if (obecny && obecny.key === cfg.key) {
+      // "Już wybrany" tylko gdy klucz FAKTYCZNIE jest w magazynie.
+      // Wczesniej porownanie szlo o MAPS.hero(), ktora przy heroKey = null
+      // zwraca pierwszego z ORDER (czyli Złodzieja). Efekt: świeżo
+      // zainstalowany skrypt mowił "Złodziej jest już wybrany" i nigdy
+      // nie zapisywał wyboru - klik na wiersz nic nie robił.
+      const zapisany = STORE.data.heroKey;
+      if (zapisany === cfg.key) {
         LOG.info(cfg.nazwa + ' jest już wybrany.');
         return false;
       }
 
-      LOG.ok('Wybrany heros: ' + cfg.nazwa + (obecny ? ' (było ' + obecny.nazwa + ')' : '') + '.');
+      LOG.ok('Wybrany heros: ' + cfg.nazwa
+        + (zapisany ? ' (było ' + ((MAPS.heroByKey(zapisany) || {}).nazwa || zapisany) + ')' : ' (pierwszy wybór)') + '.');
 
       GAME.stopWalk();
       // UWAGA: tu nie bylo GAME.stopAutofight() - takiej metody w GAME nie ma,
@@ -5051,9 +5435,108 @@ const CSS_HEROS_HUNTER = [
     // stepNext: idzemy dokladnie po kolejnosci ROUTE
     stepNext(map, now) {
       const all = MAPS.all();
-      const idx = STORE.data.routeIndex || 0;
-      const step = MAPS.stepAt(idx);
-      if (!step) { STORE.set({ routeIndex: 0 }); this.setState('GO'); return; }
+      let idx = STORE.data.routeIndex || 0;
+      let step = MAPS.stepAt(idx);
+
+      // Krok po nazwie, ktorego skrypt jeszcze nie umie odwadzic.
+      // stepAt() zwraca wtedy null, a stary kod cofal routeIndex do 0
+      // i zapetlal sie - bot stawal w miejscu bez logu. Teraz:
+      //   1. szukamy najblizszego kroku ktory juz znamy
+      //   2. jesli zaden nie jest znany, jedziemy w tryb odkrywania
+      if (!step) {
+        const nastepny = this.pierwszyZnanyKrokOd(idx, map);
+
+        // Nie wolno przeskoczyc na krok "dalej w trasie", ktory jest
+        // powrotem do miasta. Przy trasie zlodzieja 30 z 52 krokow to
+        // `Eder {pass: true}` - przeskok z "Fortyfikacja p.1" (krok 31)
+        // na "Eder" (krok 52) omijal caly Fort Eder i konczyl sie
+        // komunikatem "trasa obejdzie" w 5 sekund.
+        //
+        // KRYTERIUM, nie odleglosc (blad z 08.10): wczesniej blokowalem
+        // skok, gdy cel byl "za daleko" (wiecej niz 3 kroki). To
+        // zablokowalo skok z "Dom Mikliniosa - przyziemie" (krok 23,
+        // jeden resp) na "Eder" (krok 25) i potem na "Fort Eder" -
+        // bot nigdy nie wszedl do Domu Mrocznego Zgrzyta (krok 28,
+        // jedyny resp na tym odcinku), bo za nim nie bylo juz zadnego
+        // znanego kroku z punktami. Wykryto z logu: jedyna wzmianka
+        // o Domu Mrocznego Zgrzyta to "Krok 28 - pomijam do kroku 30".
+        //
+        // Teraz decyduje to, czy PRZESKAKIWANY krok ma cos do
+        // sprawdzenia. Ma -> jedziemy po niego i uczymy sie mapy.
+        const przeskakiwany = all[idx];
+        const przeskakiwanyMaPunkty = !!(przeskakiwany && !przeskakiwany.pass
+          && przeskakiwany.spawns && przeskakiwany.spawns.length);
+        const powrotDoBiezacej = nastepny !== null && map && map.id !== null
+          && all[nastepny] && all[nastepny].id !== null
+          && Number(all[nastepny].id) === Number(map.id);
+
+        if (nastepny !== null && !powrotDoBiezacej && !przeskakiwanyMaPunkty) {
+          if (this.skipy > CONFIG.SKIP_LIMIT) {
+            this.skipy = 0;
+            const braki = MAPS.nieznaneKroki();
+            LOG.err('Trasa nie rusza - ' + braki.length + ' krokow bez numeru mapy.');
+            LOG.err('Bot zostaje w miejscu. Nic nie zgubiono.');
+            this.setState('WAIT');
+            return;
+          }
+          STORE.set({ routeIndex: nastepny, spawnIndex: 0, pointSince: 0, stepFails: 0 });
+          this.resetGo();
+          this.skipy = 0;
+          step = MAPS.stepAt(nastepny);
+          const nazwaKroku = all[idx] ? (all[idx].nazwaWpisana || all[idx].name) : '?';
+          LOG.warn('Krok ' + (idx + 1) + ' ("' + nazwaKroku
+            + '") nie jest jeszcze znany - pomijam do kroku ' + (nastepny + 1) + '.');
+        } else {
+          // Nic w trasie nie jest znane. Jedziemy na slepo, az bramy
+          // sie naucza. To pierwsze wejscie do nowego rejonu swiata.
+          //
+          // WLACZAMY TRYB ODKRYWANIA SAM, bo bez niego bot nie ma
+          // co robic: kazdy nieznany krok by przeskoczyl nastepny
+          // znany, a na koncu uznal, ze trasa sie skonczyla (08.10).
+          if (!this.trybOdkrywania) {
+            LOG.warn('Trasa zawiera mapy, ktorych jeszcze nie znam - wlaczam tryb odkrywania.');
+            this.setTrybOdkrywania(true);
+          }
+          if (!this.travelAt) this.travelAt = 0;
+          if (now - this.travelAt < 4000) {
+            UI.set('resp', 'ucze sie bram...');
+            return;
+          }
+          this.travelAt = now;
+
+          // Najpierw brama O NAZWIE z nastepnego nieznanego kroku trasy.
+          // To jedyna metoda, ktora prowadzi nas po Twojej trasie
+          // zamiast w srodek lasu.
+          const nastepnyKrok = this.nastepnyNieznanyKrokOd(idx);
+          const nazwaKroku = nastepnyKrok !== null
+            ? (all[nastepnyKrok].nazwaWpisana || all[nastepnyKrok].name)
+            : null;
+          let brama = this.bramaPoNazwie(nazwaKroku);
+
+          if (brama) {
+            this.path = null;
+            LOG.info('Nie znam jeszcze "' + nazwaKroku + '" - jade do bramy o tej nazwie ('
+              + brama.x + ',' + brama.y + '), zeby sie nauczyc.');
+            this.stepInto(brama);
+            return;
+          }
+
+          // Nie ma bramy o tej nazwie. Szukamy ktoregokolwiek kroku z
+          // trasy, na ktory jest brama na tej mapie - nie byle ktora.
+          const znanaBrama = this.bramaTrasyNaBiezacejMapie();
+          if (znanaBrama) {
+            this.path = null;
+            LOG.info('Brama do "' + nazwaKroku + '" nie ma tutaj - jade do "'
+              + znanaBrama.brama.name + '" (' + znanaBrama.brama.x + ',' + znanaBrama.brama.y + ').');
+            this.stepInto(znanaBrama.brama);
+            return;
+          }
+
+          UI.set('resp', 'brak bram na tej mapie');
+          LOG.warn('Na tej mapie nie ma bramy do zadnego kroku trasy. Stoję.');
+          return;
+        }
+      }
 
       // stoimy na tej mapie
       if (Number(map.id) === Number(step.id)) {
@@ -5523,6 +6006,7 @@ const CSS_HEROS_HUNTER = [
     //         'poKillu'      = zabicie herosa, wyloguj i czekaj na resp
     goHome(map) {
       const reason = this.homeReason || STORE.data.homeReason || 'poKillu';
+      const all = MAPS.all();
 
       if (MAPS.isHome(map)) {
         // kolo sie zrobilo - wracamy do szukania od razu, bez wylogowania
@@ -5534,9 +6018,14 @@ const CSS_HEROS_HUNTER = [
         // nigdy nie wylogowal i nie wracal do gry (zgloszone 06.10 22:46).
         // Martwa postac spada nizej i planuje powrot jak po killu.
         if ((reason === 'koniecTrasy' || reason === 'poSmierci') && !GAME.dead()) {
+          // Wypisujemy baze herośw, a nie zawsze Ithan. Zlodziej wraca
+          // do Eder, wiec "jestem w Ithanie" bylo klamstwem (08.10).
+          const bazaTeraz = MAPS.home();
+          const nazwaBazy = (bazaTeraz && (bazaTeraz.nazwa || bazaTeraz.name))
+            || 'bazie';
           LOG.ok(reason === 'poSmierci'
-            ? 'W Ithanie po śmierci - lecę od nowa od Zniszczonego Opactwa.'
-            : 'Trasa obejdzie, jestem w Ithanie - lecę od nowa od razu.');
+            ? 'W ' + nazwaBazy + ' po śmierci - lecę od nowa od ' + all[0].name + '.'
+            : 'Trasa obejdzie, jestem w ' + nazwaBazy + ' - lecę od nowa od razu.');
           GAME.stopWalk();
           this.newRun();
           this.homeReason = null;
@@ -5603,14 +6092,21 @@ const CSS_HEROS_HUNTER = [
       // na mapie 140 - doklADNie ten sam objaw co "zapetlenie" wczesniej).
       if (this.path && this.path.length) {
         if (this.followPath(map)) this.path = null;
-        UI.set('resp', 'wracam do Ithanu');
+        UI.set('resp', 'wracam do ' + ((MAPS.home().nazwa) || 'bazy'));
         return;
       }
 
       if (!this.homeAt) this.homeAt = 0;
       if (Date.now() - this.homeAt < 20000) return;
       this.homeAt = Date.now();
-      this.goToMap(CONFIG.HOME.id);
+      // Baza herośw, nie zawsze Ithan (MAPS.home()). Złodziej wraca
+      // do Eder, Przewodnik do Ithan.
+      const baza = MAPS.home();
+      if (baza && baza.id !== null && baza.id !== undefined) {
+        this.goToMap(baza.id);
+      } else {
+        this.goToMap(CONFIG.HOME.id);
+      }
     },
   };
 
@@ -6236,6 +6732,29 @@ const CSS_HEROS_HUNTER = [
         BOT.deathHandled = false;
         LOG.info('Skok do kroku ' + (i + 1) + '/' + MAPS.all().length + ' - ' + (krok ? krok.name : '?'));
         BOT.setState('GO');
+      },
+      // Tryb odkrywania - bot jedzie do nieznanych bram i uczy się grafu.
+      // HH.optymalizuj(true|false|'stan')
+      optymalizuj: function (w) {
+        if (w === 'stan') {
+          LOG.info('Tryb odkrywania: ' + (BOT.trybOdkrywania ? 'WLACZONY' : 'wylaczony')
+            + ', znanych map w grafie: ' + Object.keys(STORE.data.graph || {}).length);
+          return BOT.trybOdkrywania;
+        }
+        BOT.setTrybOdkrywania(w);
+        return BOT.trybOdkrywania;
+      },
+      // Co skrypt jeszcze nie umie w trasie biezacego herosa.
+      // Zwraca liste krokow bez znanego numeru mapy.
+      braki: function () {
+        const l = MAPS.nieznaneKroki();
+        if (!l.length) {
+          LOG.ok('Trasa kompletna - wszystkie kroki maja numer mapy.');
+        } else {
+          LOG.warn('Trasa niekompletna - ' + l.length + ' krokow bez numeru mapy:');
+          for (let i = 0; i < l.length; i++) LOG.warn('  ' + l[i]);
+        }
+        return l;
       },
       probe: probe,
     };
