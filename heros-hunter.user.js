@@ -320,11 +320,18 @@
         //    2010 Dom Erniego p.1     161 Pracownia Bonifacego
         //    2011 A i T - piwnica     244 Fort Eder
         //    43 Siedziba Kultystow    247 Fortyfikacja
-        //    221 Dom Mrocznego Zgrzyta  249 / 251 / 252 kolejne poziomy
+        //    221 Dom Mrocznego Zgrzyta  248 / 250 / 252 kolejne poziomy
         //    2016 / 2018 / 2341 / 2342 / 2349 wnetrza domow
         //    2350 / 2351 / 2352 Ciemnica Szubrawcow
         //    2308 Stary Kupiecki Trakt 2324 Stukot Widmowych Kol
         //    4151 Wertepy Rzezimieszkow 4528 Chata szabrownikow
+        //
+        // SKAD IDZIE CZIEMNICA - nie z Eder, tylko z Fort Eder (zmierzone
+        // 08.10 z grafu bram odczytanego w grze):
+        //    Fort Eder (244): "Ciemnica Szubrawcow p.1 - sala 1" -> 2350 @60,83
+        //    Ciemnica sala 1 (2350): "Fort Eder" -> 244 @2,10
+        // Eder (33) NIE MA bramy do Ciemnicy. Nie mylic tych dwoch map -
+        // nazwy podobne, a droga jest inna.
         //
         // "Nic nie sprawdza" = `pass: true` - przechodzimy przez mape.
         //
@@ -370,7 +377,9 @@
           { nazwa: 'Dom Mrocznego Zgrzyta', spawns: [{ x: 10, y: 5 }] },
           { nazwa: 'Eder', pass: true },
 
-          // Fort Eder i fortyfikacje
+          // Fort Eder i fortyfikacje. Z Fort Eder jest brama do Ciemnicy
+          // Szubrawcow (60,83) - dlatego kolejny blok zaczyna sie wlasnie
+          // stamtad, a nie z Eder.
           { nazwa: 'Fort Eder', pass: true },
           { nazwa: 'Fortyfikacja p.1', pass: true },
           { nazwa: 'Fortyfikacja', spawns: [{ x: 7, y: 17 }] },
@@ -383,9 +392,14 @@
           { nazwa: 'Fortyfikacja p.3', pass: true },
           { nazwa: 'Fort Eder', pass: true },
 
-          // Ciemnica Szubrawcow
+          // Ciemnica Szubrawcow - wchodzimy z Fort Eder (brama 60,83),
+          // wychodzimy do Fort Eder (brama 2,10 na sali 1).
           { nazwa: 'Ciemnica Szubrawców p.1 - sala 1', spawns: [{ x: 8, y: 14 }] },
           { nazwa: 'Ciemnica Szubrawców p.1 - sala 2', spawns: [{ x: 13, y: 15 }] },
+          // Punkt 51,53 zweryfikowany na zywo 08.10 na mapie 2352:
+          // rozmiar mapy 42x42, wiec 51 i 53 sa POZA mapa. Skrypt
+          // odrzuca taki punkt ("Resp poza mapą") i jedzie dalej.
+          // Zostawiam wpisany - na wypadek poprawki mapy w grze.
           { nazwa: 'Ciemnica Szubrawców p.1 - sala 3', spawns: [{ x: 45, y: 15 }, { x: 51, y: 53 }] },
           { nazwa: 'Ciemnica Szubrawców p.1 - sala 2', pass: true },
           { nazwa: 'Ciemnica Szubrawców p.1 - sala 1', pass: true },
@@ -6731,7 +6745,23 @@ const CSS_HEROS_HUNTER = [
         BOT.travelAt = 0;
         BOT.deathHandled = false;
         LOG.info('Skok do kroku ' + (i + 1) + '/' + MAPS.all().length + ' - ' + (krok ? krok.name : '?'));
-        BOT.setState('GO');
+        // Skok ma wlaczyc bota, nie tylko ustawic stan.
+        //
+        // Wczesniej bylo samo `BOT.setState('GO')`. Po HH.stop() zostawalo
+        // to: running = false, stan = GO, brak timera. Przycisk Start
+        // sprawdza `BOT.state !== 'STOPPED'` i mowi "Bot juz jedzie" ->
+        // disabled. Efekt: bot w stanie "jedzie", nie rusza sie, a Start
+        // nie da sie kliknac (zgloszone 09.49, wygladalo jak "poszedl
+        // dziwnie").
+        //
+        // UWAGA: stan ustawiamy PRZED start(), bo start() wybiera stan
+        // sam (`setState(loggedIn ? SCAN : WAIT)`). Kolejnosc odwrotna
+        // gubila skok - krok sie nie zgadzal z tym, co bot robil.
+        BOT.setState('STOPPED');
+        BOT.start();
+        // Po starcie kazemy mu isc od razu do wybranego kroku, nie
+        // zaczynac obchodu tam, gdzie akurat stoimy.
+        if (BOT.running) BOT.setState('GO');
       },
       // Tryb odkrywania - bot jedzie do nieznanych bram i uczy się grafu.
       // HH.optymalizuj(true|false|'stan')
