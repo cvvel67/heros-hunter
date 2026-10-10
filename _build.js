@@ -20,7 +20,10 @@ const SRC = path.join(__dirname, 'heros-hunter.user.js');
 const OUT_DIR = path.join(__dirname, 'dist');
 const OUT = path.join(OUT_DIR, 'heros-hunter.min.user.js');
 
-const RAW = 'https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.min.user.js';
+// Plik lezy w dist/ - tak tez mowi README. Wczesniej byl tu adres bez
+// "dist/" (404), wiec zainstalowana wersja min nigdy sie nie aktualizowala
+// (sprawdzone 10.10: root 404, dist 200).
+const RAW = 'https://raw.githubusercontent.com/cvvel67/heros-hunter/main/dist/heros-hunter.min.user.js';
 
 // --- naglowek userscript -----------------------------------------------
 const src = fs.readFileSync(SRC, 'utf8');

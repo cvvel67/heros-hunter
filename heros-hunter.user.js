@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      0.17
+// @version      0.27
 // @description  szuka heros
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
@@ -134,7 +134,7 @@
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '0.17';
+  const WERSJA = '0.27';
 
   /* =====================================================================
    *  1. CONFIG
@@ -210,6 +210,35 @@
 
     // Ile minut od nowa liczy się po komendzie "czekaj!" z czatu.
     ATAK_OD_NOWA_MIN: 5,
+
+    // Jak dlugo wazny jest "bij!" napisany, zanim bot znajdzie herosa.
+    // Wczesniej rozkaz czekal bez konca i bot potrafil zaatakowac
+    // godziny pozniej, bez druzyny (ustalone 10.10: 30 s).
+    BIJ_WAZNE_MS: 30000,
+
+    // Licznik na stronie glownej (www.margonem.pl) nie wchodzi sam do gry,
+    // jesli zaplanowane wejscie minelo dawniej niz tyle. Bez tego ktos,
+    // kto otworzy margonem nastepnego dnia, zostalby od razu wciagniety
+    // do gry przez dawno nieaktualny plan.
+    WEJSCIE_SPOZNIONE_MS: 30 * 60000,
+
+    // ZAKONNIK PLANU ASTRALNEGO - teleport miedzy miastami (09.10).
+    // Gdy bot nie zna drogi pieszo do kroku trasy ani do bazy herosa
+    // (np. "heros 2!" w Ederze, a Przewodnik ma baze w Ithanie), idzie
+    // do zakonnika i teleportuje sie do bazy. Zwojow teleportacji NIE
+    // uzywa - decyzja gracza 09.10.
+    //
+    // Znani zakonnicy: { 'id mapy': { id NPC, x, y } }. Zmierzone na zywo
+    // 09.10 (Gefion). Kolejnych bot uczy sie sam (STORE.data.zakonnicy).
+    // Teleport kosztuje zloto (Ithan/Eder 100 000) - cene bot czyta
+    // z tekstu odpowiedzi i bez wystarczajacej kwoty nie klika.
+    ZAKONNICY: {
+      33: { id: 12506, x: 26, y: 40 },   // Eder
+      1: { id: 44099, x: 56, y: 26 },    // Ithan
+    },
+    // Po nieudanym teleporcie (brak drogi do zakonnika, timeout) bot nie
+    // probuje ponownie przez tyle ms - inaczej krecilby sie w kolko.
+    TELEPORT_PRZERWA_MS: 600000,
 
     // ZWOJE PRZYWOŁANIA
     //
@@ -302,6 +331,9 @@
         zwój: 'Zwój przywołania drużyny na herosa Złodziej',
         img: 'https://micc.garmory-cdn.cloud/obrazki/npc/her/zlodziej.gif',
         atakPoMin: 5,
+        // Najkrotszy czas odrodzenia w minutach, liczony OD ZABICIA
+        // (oficjalne czasy podane przez gracza 10.10: 2h 15min).
+        respMinMin: 135,
         // Baza tego herośw. Złodziej mieszka w Eder (33) - po obchodzie
         // wraca tutaj i leci pętlę od nowa. NIE wraca do Ithan, bo tam
         // mieszka Zły Przewodnik (zadanie gracza 08.10). Bez tego bot
@@ -396,10 +428,9 @@
           // wychodzimy do Fort Eder (brama 2,10 na sali 1).
           { nazwa: 'Ciemnica Szubrawców p.1 - sala 1', spawns: [{ x: 8, y: 14 }] },
           { nazwa: 'Ciemnica Szubrawców p.1 - sala 2', spawns: [{ x: 13, y: 15 }] },
-          // Punkt 51,53 zweryfikowany na zywo 08.10 na mapie 2352:
-          // rozmiar mapy 42x42, wiec 51 i 53 sa POZA mapa. Skrypt
-          // odrzuca taki punkt ("Resp poza mapą") i jedzie dalej.
-          // Zostawiam wpisany - na wypadek poprawki mapy w grze.
+          // Punkt 51,53: komentarz z 08.10 mowil "mapa 42x42, punkt poza
+          // mapa" - to bylo BLEDNE. Zmierzone na zywo 09.10 na mapie 2352:
+          // Engine.map.size = 64x64, bot doszedl i zalogowal "Resp 2/2: 51,53".
           { nazwa: 'Ciemnica Szubrawców p.1 - sala 3', spawns: [{ x: 45, y: 15 }, { x: 51, y: 53 }] },
           { nazwa: 'Ciemnica Szubrawców p.1 - sala 2', pass: true },
           { nazwa: 'Ciemnica Szubrawców p.1 - sala 1', pass: true },
@@ -424,6 +455,11 @@
         zwój: 'Zwój przywołania drużyny na herosa Zły Przewodnik',
         img: 'https://micc.garmory-cdn.cloud/obrazki/npc/her/mnich-zly2.gif',
         atakPoMin: 5,
+        respMinMin: 165,            // 2h 45min od zabicia (oficjalnie, 10.10)
+        // Miasto bazowe (zadanie gracza 09.10). To samo co domyslne
+        // CONFIG.HOME, ale wpisane jawnie - teleport przy zmianie herosa
+        // celuje w baze.
+        baza: 'Ithan',
         route: [
           // Kolejnosc i punkty DOKLADNIE jak lista gracza (06.10).
           // Wczesniej punkty na kilku mapach byly posortowane rosnaco
@@ -492,6 +528,7 @@
       //   zwój: 'Zwój przywołania drużyny na herosa Nazwa Herosa W Grze',
       //   img: 'https://.../obrazek.gif',   // obrazek na liscie wyboru
       //   atakPoMin: 5,             // po tylu minutach czekania bijemy sami (0 = nigdy)
+      //   respMinMin: 165,          // najkrotszy resp w minutach od zabicia (oficjalny)
       //   route: [
       //     { id: 8, spawns: [{ x: 6, y: 46 }] },
       //     { id: 38, spawns: [{ x: 13, y: 26 }] },
@@ -534,6 +571,8 @@
         // listy; naglowek zostaje 24 px.
         imgBox: 53,
         atakPoMin: 5,
+        respMinMin: 165,            // 2h 45min od zabicia (oficjalnie, 10.10)
+        baza: 'Ithan',
         // margoworld.pl/npc/view/17494 (stan 05.03.2023):
         //   1387 Skaly Mroznych Spiewow  (8,48) (28,60) (43,21) (44,39)
         //   1730 Cmentarzysko Szerpow    (43,20) (46,60) (63,47) (75,55)
@@ -558,6 +597,8 @@
         zwój: 'Zwój przywołania drużyny na herosa Piekielny Kościej',
         img: 'https://micc.garmory-cdn.cloud/obrazki/npc/her/piekielny_kosciej.gif',
         atakPoMin: 5,
+        respMinMin: 165,            // 2h 45min od zabicia (oficjalnie, 10.10)
+        baza: 'Ithan',
         // margoworld.pl/npc/view/19743 (stan 17.10.2023):
         //   6628 Zdradzieckie Przejscie p.1 (8,85) (9,42)
         //   6629 Zdradzieckie Przejscie p.2 (9,28) (19,6) (51,45)
@@ -591,6 +632,36 @@
       6475: 'Grota Bezszelestnych Kroków - sala 3',
       // 142 brakowalo - mapa jest w GATEWAYS, wiec w UI wychodzilo "mapa 142"
       142: 'Mroczna Pieczara p.1 - sala 2',
+
+      // ── Rejon Edera (trasa Zlodzieja) ──
+      // Numery z pomiaru 08.10 (komentarz nad trasa Zlodzieja). Wczesniej
+      // byly TYLKO w komentarzu, wiec kroki po nazwie mialy id = null i bot
+      // wpadal w tryb odkrywania (09.10: petla 157 <-> 158).
+      // Potwierdzone na zywo 09.10 z bram na mapie 157: 33, 158, 2011.
+      // Swiadomie POMINIETE, bo komentarz nie mowi ktora jest ktora:
+      // 248/250/252 (poziomy Fortyfikacji), 2016/2018/2341/2342/2349
+      // (wnetrza domow). Te bot pozna sam przy wejsciu (STORE.data.alias
+      // ma pierwszenstwo przed NAMES).
+      33: 'Eder',
+      43: 'Siedziba Kultystów',
+      157: 'Dom Artenii i Tafina',
+      158: 'Dom Artenii i Tafina p.1',
+      161: 'Pracownia Bonifacego',
+      162: 'Dom Erniego',
+      219: 'Dom Etrefana',
+      220: 'Dom Mikliniosa',
+      221: 'Dom Mrocznego Zgrzyta',
+      244: 'Fort Eder',
+      247: 'Fortyfikacja',
+      2010: 'Dom Erniego p.1',
+      2011: 'Dom Artenii i Tafina - piwnica',
+      2308: 'Stary Kupiecki Trakt',
+      2324: 'Stukot Widmowych Kół',
+      2350: 'Ciemnica Szubrawców p.1 - sala 1',
+      2351: 'Ciemnica Szubrawców p.1 - sala 2',
+      2352: 'Ciemnica Szubrawców p.1 - sala 3',
+      4151: 'Wertepy Rzezimieszków',
+      4528: 'Chata szabrowników',
     },
 
     // GATEWAYS - bramy odczytane z gry (Engine.map.gateways.getDrawableItems).
@@ -1007,6 +1078,21 @@
       return out;
     },
 
+    // Minutnik w formacie zmierzonym 10.10 po zabiciu Przewodnika:
+    //   .elite-timer-wnd .name-val "[H] Zły Przewodnik"
+    //   .elite-timer-wnd .time-val "08:13:42"   (gg:mm:ss, ten sam w tytule karty)
+    // eliteTimers() wyzej szuka "h"/"min", wiec tego nie widzi. Tu tylko
+    // do logu - co oznacza ten czas (koniec okna respu?), nie wiadomo.
+    minutnikWiersze() {
+      const nazwy = document.querySelectorAll('.elite-timer-wnd .name-val');
+      const czasy = document.querySelectorAll('.elite-timer-wnd .time-val');
+      const out = [];
+      for (let i = 0; i < nazwy.length; i++) {
+        out.push(String(nazwy[i].textContent || '').trim() + ' ' + (czasy[i] ? String(czasy[i].textContent || '').trim() : '?'));
+      }
+      return out;
+    },
+
     // Stan walki. w_amount > 0 = trwa walka z czymkolwiek.
     inFight() {
       if (!this.ready() || !Engine.battle) return false;
@@ -1078,10 +1164,16 @@
     },
 
     // Prawy klik na nick -> menu -> klik w "Zapros do grupy".
-    // Zwraca nick, ktorego zaproszenie wyslano, albo null.
-    inviteFromChat() {
+    // Zwraca nick, ktoremu probujemy wyslac zaproszenie, albo null.
+    // `wiersz` = wiadomosc z komenda "zap!" - zapraszamy JEJ autora.
+    // Wczesniej brany byl autor OSTATNIEJ wiadomosci na czacie, wiec gdy
+    // ktos sie wtracil, zaproszenie dostawala zla osoba (przeglad 10.10).
+    // `wynik(ok)` - wolane, gdy menu znalezione (true) albo proby sie
+    // skonczyly (false); dopiero wtedy wiadomo, czy zaproszenie poszlo.
+    inviteFromChat(wiersz, wynik) {
       try {
-        const autor = this.lastChatAuthor();
+        const autor = (wiersz && wiersz.querySelector && wiersz.querySelector('.author-section'))
+          || this.lastChatAuthor();
         if (!autor) return null;
         const nick = String(autor.textContent || '').replace(/:\s*$/, '').trim();
         if (!nick) return null;
@@ -1098,10 +1190,12 @@
             const t = String(itemy[i].textContent || '').trim();
             if (t === 'Zapros do grupy' || t === 'Zaproś do grupy') {
               itemy[i].click();
+              if (wynik) wynik(true, nick);
               return nick;
             }
           }
           if (proby > 0) { setTimeout(function () { spr(proby - 1); }, 350); }
+          else if (wynik) wynik(false, nick);
           return null;
         };
         spr(6);
@@ -1265,16 +1359,16 @@
       if (Object.prototype.hasOwnProperty.call(cache, tipId)) return cache[tipId];
       let nazwa = '';
       const T = (typeof TIPS !== 'undefined' && TIPS && TIPS.allTips) ? TIPS.allTips : null;
-      if (T) {
-        const html = T[tipId];
-        if (typeof html === 'string' && html) {
-          const i = html.indexOf('item-name');
-          if (i >= 0) {
-            const a = html.indexOf('>', i);
-            const b = html.indexOf('<', a + 1);
-            if (a >= 0 && b > a) nazwa = html.slice(a + 1, b).replace(/\s+/g, ' ').trim();
-          }
-        }
+      // Brak TIPS albo brak podpowiedzi = "jeszcze nie wiem", NIE "pusta
+      // nazwa". Nie zapisujemy tego do cache - inaczej pusta nazwa
+      // zostawala na stale i ponowne proby w startZwoje() nic nie daly.
+      if (!T || typeof T[tipId] !== 'string' || !T[tipId]) return '';
+      const html = T[tipId];
+      const i = html.indexOf('item-name');
+      if (i >= 0) {
+        const a = html.indexOf('>', i);
+        const b = html.indexOf('<', a + 1);
+        if (a >= 0 && b > a) nazwa = html.slice(a + 1, b).replace(/\s+/g, ' ').trim();
       }
       cache[tipId] = nazwa;
       return nazwa;
@@ -1699,7 +1793,10 @@
         if (!r.width || !r.height) return null;
 
         const mapaGry = (STRONA.Engine && STRONA.Engine.map) || {};
-        const dane = mapaDane;
+        // Wymiary mapy w kaflach (map.d.x / map.d.y - patrz komentarz wyzej).
+        // Wczesniej stalo tu `mapaDane`, zmienna, ktora nigdzie nie istnieje:
+        // ReferenceError lapal catch nizej i funkcja ZAWSZE zwracala null.
+        const dane = mapaGry.d || {};
         let tileW = 32;
         let tileH = 32;
         if (mapaGry.width && dane.x) tileW = mapaGry.width / dane.x;
@@ -1711,8 +1808,11 @@
         const minY = mapaGry.getMinY ? mapaGry.getMinY() : null;
         let px, py;
         if (minX !== null && minY !== null && isFinite(minX) && isFinite(minY)) {
-          px = r.left + (Number(x) - minX) * tileW;
-          py = r.top + (Number(y) - minY) * tileH;
+          // + pol kafla = SRODEK kafla, nie lewy gorny rog. Zmierzone 09.10
+          // na mapie 157 (minX 2.9375): rog kafla to piksel na granicy
+          // z sasiadem, wiec po zaokragleniu klik moze trafic obok.
+          px = r.left + (Number(x) - minX) * tileW + tileW / 2;
+          py = r.top + (Number(y) - minY) * tileH + tileH / 2;
         } else {
           // Bez widocznego obszaru zostaje stary wzor. Zle, ale lepszy niz
           // brak piksela - a dokladnosc i tak nie jest tu krytyczna.
@@ -1749,6 +1849,61 @@
       }
       void self;
       return Promise.resolve({ via: null, powod: 'brak trusted API i autoGoTo' });
+    },
+
+    // ---- dialog z NPC (zmierzone 09.10 na Zakonniku Planu Astralnego) ----
+
+    // Widoczne odpowiedzi otwartego dialogu: [{ el, tekst }].
+    // Element ma handler jQuery wysylajacy talk&id=..&c=.., wiec zwykle
+    // el.click() dziala jak klik gracza (sprawdzone na "Nigdzie.").
+    dialogOdpowiedzi() {
+      let wezly = [];
+      try { wezly = document.querySelectorAll('.dialogue-window.is-open .dialogue-window-answer'); } catch (e) { return []; }
+      const out = [];
+      for (let i = 0; i < wezly.length; i++) {
+        const n = wezly[i];
+        const r = n.getBoundingClientRect();
+        if (!r.width || !r.height) continue;
+        out.push({ el: n, tekst: String(n.innerText || n.textContent || '').replace(/\s+/g, ' ').trim() });
+      }
+      return out;
+    },
+
+    // Zamkniecie dialogu opcja wyjscia ("Nigdzie.", "Niczego." itp.).
+    zamknijDialog() {
+      const o = this.dialogOdpowiedzi();
+      for (let i = o.length - 1; i >= 0; i--) {
+        if (/line_exit/.test(String(o[i].el.className))) { o[i].el.click(); return true; }
+      }
+      return false;
+    },
+
+    // "1. Ithan (100 000 sztuk złota)." -> 100000; "darmowa" -> 0;
+    // null = nie umiemy odczytac.
+    cenaZOdpowiedzi(tekst) {
+      const t = String(tekst || '');
+      if (/darmow/i.test(t)) return 0;
+      const m = /\(([\d\s]+)\s*sztuk z/i.exec(t);
+      return m ? Number(m[1].replace(/[^\d]/g, '')) : null;
+    },
+
+    // Po wyborze platnej opcji gra pyta (zmierzone 10.10):
+    // "Wybrana opcja spowoduje pobranie 100000 sztuk złota. Czy na pewno
+    // chcesz kontynuować?" [Tak] [Nie]. Zwraca { kwota, tak, nie } albo null.
+    alertZaplaty() {
+      let okna = [];
+      try { okna = document.querySelectorAll('.mAlert.askAlert'); } catch (e) { return null; }
+      for (let i = okna.length - 1; i >= 0; i--) {
+        const o = okna[i];
+        if (!o.offsetParent) continue;
+        const m = /pobrani\w*\s+([\d\s]+?)\s*sztuk/i.exec(String(o.innerText || o.textContent || ''));
+        if (!m) continue;
+        const tak = o.querySelector('.alert-accept-hotkey');
+        const nie = o.querySelector('.alert-cancel-hotkey');
+        if (!tak || !nie) continue;
+        return { kwota: Number(m[1].replace(/[^\d]/g, '')), tak: tak, nie: nie };
+      }
+      return null;
     },
 
     logout() {
@@ -1829,6 +1984,39 @@
       const lista = this.heroList();
       for (let i = 0; i < lista.length; i++) if (lista[i].key === key) return lista[i];
       return lista.length ? lista[0] : null;
+    },
+
+    // Zabici herosi z najkrotszym respem, od najwczesniejszego:
+    // [{ key, nazwa, kiedy }], kiedy = chwila zabicia + respMinMin.
+    // Kazdy heros osobno (ustalone 10.10): po "heros X!" i drugim zabiciu
+    // bot wraca na pierwszy mozliwy resp, a nie na resp ostatniego.
+    // UWAGA: heroByKey() przy nieznanym kluczu zwraca PIERWSZEGO herosa,
+    // wiec klucz sprawdzamy dokladnie.
+    respy() {
+      const z = STORE.data.zabicia || {};
+      const out = [];
+      const klucze = Object.keys(z);
+      for (let i = 0; i < klucze.length; i++) {
+        const cfg = this.heroByKey(klucze[i]);
+        const t = Number(z[klucze[i]]) || 0;
+        if (!cfg || cfg.key !== klucze[i] || !t || !(Number(cfg.respMinMin) > 0)) continue;
+        out.push({ key: cfg.key, nazwa: cfg.nazwa, kiedy: t + Number(cfg.respMinMin) * 60000 });
+      }
+      out.sort(function (a, b) { return a.kiedy - b.kiedy; });
+      return out;
+    },
+
+    // Usuwa zabicia, ktorych resp juz minal - heros moze byc, licznik
+    // nie jest potrzebny. Wolane, gdy bot zaczyna szukac (wejscie do gry,
+    // przelaczenie), zeby stary wpis nie wracal przy kolejnym zabiciu.
+    usunMinioneRespy(teraz) {
+      const z = Object.assign({}, STORE.data.zabicia || {});
+      const r = this.respy();
+      let zmiana = false;
+      for (let i = 0; i < r.length; i++) {
+        if (r[i].kiedy <= teraz) { delete z[r[i].key]; zmiana = true; }
+      }
+      if (zmiana) STORE.set({ zabicia: z });
     },
 
     // heros, ktorego trase wlasnie obchodzimy
@@ -2104,6 +2292,21 @@
       spawnIndex: 0,
       pointSince: 0,
       nextRespawnAt: 0,
+      // Czy nextRespawnAt pochodzi z Minutnika (true) czy jest szacunkiem.
+      // Nick postaci - zeby na stronie glownej wejsc ta sama postacia.
+      // Kiedy licznik na stronie glownej kliknal "Wejdz do gry" (ms) -
+      // druga otwarta karta nie kliknie drugi raz.
+      // Te trzy MUSZA byc tu: load() gubi klucze spoza tej listy, jesli
+      // nie sa obiektami (zmierzone 10.10 - nick i respawnZgloszony ginely).
+      respawnZgloszony: false,
+      nick: null,
+      wejscieKlik: 0,
+      // Chwila zabicia (ms) kazdego herosa osobno: { [key]: ms }. Resp liczy
+      // sie OD ZABICIA - MAPS.respy() dolicza respMinMin. Zastapilo
+      // zabityO/zabityKey (pamietaly tylko ostatnie zabicie).
+      zabicia: {},
+      // Ktorego herosa szukac po wejsciu z licznika (najwczesniejszy resp).
+      wejscieHeros: null,
       // Czas z komendy "odwolaj Nmin". Chroni go przed przeliczeniem
       // w goHome() - bez tego "odwolaj 3min!" przepadalo po dotarciu
       // do Ithanu (bot ustawial sobie 120 min). Po wykorzystaniu 0.
@@ -2119,6 +2322,9 @@
       // czego porownac z numerem biezacej mapy i wszystkie kroki maja
       // id = null.
       alias: {},
+      // Zakonnicy Planu Astralnego poznani w grze: { 'id mapy': {id, x, y} }.
+      // Uzupelnia CONFIG.ZAKONNICY (BOT.zapamietajZakonnika).
+      zakonnicy: {},
       visited: {},
       respawnSamples: [],
       found: 0,
@@ -4096,7 +4302,8 @@ const CSS_HEROS_HUNTER = [
         ['zap!', 'zaprasza autora wiadomości do grupy'],
         ['oddaj d!', 'przekazuje dowództwo w drużynie'],
         ['przywo!', 'przywołuje członków drużyny'],
-        ['bij!', 'atakuje, pomija czekanie'],
+        ['bij!', 'atakuje, pomija czekanie. Napisane przed znalezieniem '
+          + 'herosa jest ważne 30 s'],
         ['czekaj!', 'cofa odliczanie do ataku o 5 minut'],
         ['odwołaj Xmin!', 'odwołuje szukanie herosa i cofa go do punktu '
           + 'startowego. X oznacza liczbę minut na ile ma zostać wyłączony'],
@@ -4104,7 +4311,9 @@ const CSS_HEROS_HUNTER = [
           + 'odpowiada za daną liczbę, zaczynając od 1 u samej góry)'],
       ]));
       komendy.appendChild(el('p', 'hh-note',
-        'Komendy działają też przy zatrzymanym bocie: wykonują się, '
+        'Komenda musi być całą wiadomością i kończyć się wykrzyknikiem '
+        + '("bij!" tak, "bij" i "nie bij!" nie). '
+        + 'Komendy działają też przy zatrzymanym bocie: wykonują się, '
         + 'a szukanie zostaje wstrzymane.'));
       bd.appendChild(this.akordeon('Komendy na czacie klanu lub drużyny', komendy));
 
@@ -4411,6 +4620,7 @@ const CSS_HEROS_HUNTER = [
 
     stop(manual) {
       this.running = false;
+      this.tp = null;
       GAME.stopWalk();
       this.setState('STOPPED');
       LOG.warn('Stop' + (manual ? ' (recznie)' : '') + '.');
@@ -4445,6 +4655,245 @@ const CSS_HEROS_HUNTER = [
       // "this.rememberAlias is not a function" co sekundę i psuło cały
       // tick - nazwy map nigdy nie byly zapamietywane.
       MAPS.rememberAlias(m.id, m.name);
+      // Zakonnika szukamy tylko po zmianie mapy - lista NPC w miescie ma
+      // ~250 pozycji, nie ma sensu przegladac jej co sekunde.
+      if (this.zakMapa !== m.id) {
+        this.zakMapa = m.id;
+        this.zapamietajZakonnika(m);
+      }
+    },
+
+    /* ---------------------------------------------------------------
+     *  TELEPORT U ZAKONNIKA PLANU ASTRALNEGO
+     *
+     *  Mechanika zmierzona na zywo 09.10 (Gefion, Eder):
+     *    _g('talk&id=<npc>')        - otwiera rozmowe
+     *    klik w odpowiedz dialogu   - wysyla talk&id=<npc>&c=<kod>
+     *                                 (kod jest w domknieciu jQuery,
+     *                                 wiec klikamy element, jak gracz)
+     *    1. ekran: "Chciałam się teleportować."
+     *    2. ekran: "1. Ithan (100 000 sztuk złota)." itd.
+     *  Po wyborze gra sama woła Engine.interface.checkTeleport().
+     *  Sam teleport NIE byl jeszcze sprawdzony na zywo (brak 100k zlota).
+     * ------------------------------------------------------------- */
+
+    NICK_ZAKONNIKA: 'Zakonnik Planu Astralnego',
+
+    zapamietajZakonnika(m) {
+      const lista = GAME.npcs();
+      for (let i = 0; i < lista.length; i++) {
+        const d = lista[i] && lista[i].d ? lista[i].d : lista[i];
+        if (!d || d.nick !== this.NICK_ZAKONNIKA) continue;
+        const z = STORE.data.zakonnicy || (STORE.data.zakonnicy = {});
+        const stary = z[m.id];
+        if (!stary || stary.id !== d.id || stary.x !== d.x || stary.y !== d.y) {
+          z[m.id] = { id: d.id, x: d.x, y: d.y };
+          LOG.info('Zapamietano Zakonnika Planu Astralnego: ' + m.name + ' @' + d.x + ',' + d.y + '.');
+          STORE.save();
+        }
+        return;
+      }
+    },
+
+    // Wszyscy znani zakonnicy: CONFIG + to, czego bot sie nauczyl.
+    znaniZakonnicy() {
+      const out = {};
+      const zrodla = [CONFIG.ZAKONNICY || {}, STORE.data.zakonnicy || {}];
+      for (let s = 0; s < zrodla.length; s++) {
+        for (const k in zrodla[s]) {
+          if (Object.prototype.hasOwnProperty.call(zrodla[s], k)) out[k] = zrodla[s][k];
+        }
+      }
+      return out;
+    },
+
+    // Zakonnik na podanej mapie: najpierw zywa lista NPC (aktualna pozycja),
+    // potem pamiec. null = na tej mapie go nie ma.
+    zakonnikNa(mapId) {
+      const lista = GAME.npcs();
+      for (let i = 0; i < lista.length; i++) {
+        const d = lista[i] && lista[i].d ? lista[i].d : lista[i];
+        if (d && d.nick === this.NICK_ZAKONNIKA) return { id: d.id, x: d.x, y: d.y };
+      }
+      const znani = this.znaniZakonnicy();
+      return znani[mapId] || null;
+    },
+
+    // Najblizszy osiagalny pieszo zakonnik (najmniej przeskokow po grafie).
+    najblizszyZakonnik() {
+      const znani = this.znaniZakonnicy();
+      let naj = null;
+      for (const k in znani) {
+        if (!Object.prototype.hasOwnProperty.call(znani, k)) continue;
+        const sciezka = this.pathTo(Number(k));
+        if (!sciezka) continue;
+        if (!naj || sciezka.length < naj.sciezka.length) naj = { mapa: Number(k), sciezka: sciezka };
+      }
+      return naj;
+    },
+
+    // Czy teleport ma sens. Tylko gdy NIE da sie dojsc pieszo ani do celu
+    // (to sprawdzil juz wywolujacy), ani do bazy herosa. Zwraca true, gdy
+    // teleport zostal zaplanowany - wtedy tick przejmuje teleportTick().
+    zaplanujTeleport(powod) {
+      const baza = MAPS.home();
+      const cel = baza && (baza.nazwa || baza.name);
+      if (!cel) return false;
+      if (MAPS.isHome(MAPS.current())) return false;
+      if (baza.id !== null && baza.id !== undefined && this.pathTo(baza.id)) return false;
+      if (this.tpPrzerwaDo && Date.now() < this.tpPrzerwaDo) return false;
+      this.tp = { cel: cel, od: Date.now(), etap: 'dojscie', ostatniaRozmowa: 0, proby: 0, wybrano: 0 };
+      this.path = null;
+      this.pathIdx = 0;
+      this.resetGo();
+      LOG.info('Nie znam drogi pieszo (' + powod + ') - ide do Zakonnika Planu Astralnego, teleport do ' + cel + '.');
+      return true;
+    },
+
+    przerwijTeleport(powod, now) {
+      LOG.warn('Teleport do ' + (this.tp ? this.tp.cel : '?') + ' przerwany: ' + powod);
+      const zaplata = GAME.alertZaplaty();
+      if (zaplata) zaplata.nie.click();
+      GAME.zamknijDialog();
+      this.tp = null;
+      this.path = null;
+      this.tpPrzerwaDo = (now || Date.now()) + CONFIG.TELEPORT_PRZERWA_MS;
+    },
+
+    // Jeden takt teleportu. Wywolywany z tick() w stanie GO/HOME,
+    // dopoki this.tp istnieje.
+    teleportTick(map, now) {
+      const tp = this.tp;
+      if (!tp) return;
+      const cel = MAPS.plain(tp.cel);
+      const baza = MAPS.home();
+
+      // 1) jestesmy u celu
+      const naMiejscu = MAPS.plain(map.name) === cel
+        || (baza && baza.id !== null && baza.id !== undefined && Number(map.id) === Number(baza.id));
+      if (naMiejscu) {
+        LOG.ok('Teleport udany - jestem w ' + map.name + '.');
+        GAME.zamknijDialog();
+        this.tp = null;
+        this.path = null;
+        this.pathIdx = 0;
+        this.resetGo();
+        // W HOME dalsza obsluge (logout po killu, petla od nowa) robi
+        // goHome() w nastepnym takcie. W GO zaczynamy trase od poczatku.
+        if (this.state !== 'HOME') {
+          this.newRun();
+          this.setState('GO');
+        }
+        return;
+      }
+
+      if (now - tp.od > 180000) {
+        this.przerwijTeleport('nie udalo sie w 3 minuty.', now);
+        return;
+      }
+
+      // 1a) miasto wybrane - nie klikamy drugi raz, tylko potwierdzamy
+      // zaplate (gdy kwota zgadza sie z cena) i czekamy na zmiane mapy
+      if (tp.etap === 'czekam') {
+        const zaplata = GAME.alertZaplaty();
+        if (zaplata) {
+          if (tp.potwierdzono) return;
+          const zloto = Number(Engine.hero && Engine.hero.d && Engine.hero.d.gold) || 0;
+          if ((tp.cena !== null && zaplata.kwota !== tp.cena) || zaplata.kwota > zloto) {
+            this.przerwijTeleport('gra chce ' + zaplata.kwota + ' zlota (cena z listy: ' + tp.cena
+              + ', masz ' + zloto + ') - odmawiam.', now);
+            return;
+          }
+          LOG.ok('Potwierdzam zaplate ' + zaplata.kwota + ' zlota za teleport do ' + tp.cel + '.');
+          tp.potwierdzono = now;
+          zaplata.tak.click();
+          return;
+        }
+        if (now - tp.wybrano < 15000) return;
+        this.przerwijTeleport('po wyborze miasta nic sie nie stalo przez 15 s.', now);
+        return;
+      }
+
+      // 2) na tej mapie nie ma zakonnika - idziemy do najblizszego
+      const z = this.znaniZakonnicy()[map.id] ? this.zakonnikNa(map.id) : null;
+      if (!z) {
+        if (this.path && this.path.length) { this.followPath(map); return; }
+        const naj = this.najblizszyZakonnik();
+        if (!naj) {
+          this.przerwijTeleport('nie znam drogi do zadnego Zakonnika Planu Astralnego.', now);
+          return;
+        }
+        this.path = naj.sciezka;
+        this.pathIdx = 0;
+        LOG.info('Ide do Zakonnika na mapie ' + (MAPS.nameOf(naj.mapa) || naj.mapa) + ' ('
+          + naj.sciezka.length + ' przeskokow).');
+        this.followPath(map);
+        return;
+      }
+
+      // 3) podchodzimy na sasiedni kafel
+      const pos = GAME.pos();
+      if (!pos) return;
+      if (Math.max(Math.abs(pos[0] - z.x), Math.abs(pos[1] - z.y)) > 1) {
+        const k = this.adjacentTo(z);
+        if (k) this.walk(k[0], k[1]);
+        return;
+      }
+
+      // 4) rozmowa
+      const odp = GAME.dialogOdpowiedzi();
+      if (!odp.length) {
+        if (now - tp.ostatniaRozmowa < 4000) return;
+        tp.proby++;
+        if (tp.proby > 4) {
+          this.przerwijTeleport('Zakonnik nie odpowiada (' + (tp.proby - 1) + ' prob).', now);
+          return;
+        }
+        tp.ostatniaRozmowa = now;
+        tp.etap = 'rozmowa';
+        GAME.send('talk&id=' + z.id);
+        return;
+      }
+
+      // 4a) lista miast - wybieramy baze
+      let miasto = null;
+      for (let i = 0; i < odp.length; i++) {
+        const nazwa = odp[i].tekst.replace(/^\d+\.\s*/, '').replace(/\s*\(.*$/, '');
+        if (MAPS.plain(nazwa) === cel) { miasto = odp[i]; break; }
+      }
+      if (miasto) {
+        const cena = GAME.cenaZOdpowiedzi(miasto.tekst);
+        const zloto = Number(Engine.hero && Engine.hero.d && Engine.hero.d.gold) || 0;
+        if (cena !== null && zloto < cena) {
+          const opis = 'Brakuje ' + (cena - zloto) + ' zlota na teleport do ' + tp.cel
+            + ' (koszt ' + cena + ', masz ' + zloto + '). Bot staje.';
+          LOG.warn(opis);
+          NOTIFY.send({ title: 'Za malo zlota na teleport', description: opis, color: 0xdc4b4b });
+          GAME.zamknijDialog();
+          this.tp = null;
+          this.stop(false);
+          return;
+        }
+        if (cena === null) LOG.warn('Nie umiem odczytac ceny z "' + miasto.tekst + '" - wybieram mimo to.');
+        LOG.ok('Teleport u Zakonnika: ' + miasto.tekst + ' (masz ' + zloto + ' zlota).');
+        tp.etap = 'czekam';
+        tp.wybrano = now;
+        tp.cena = cena;
+        tp.potwierdzono = 0;
+        miasto.el.click();
+        return;
+      }
+
+      // 4b) pierwszy ekran - "Chciałam się teleportować."
+      for (let i = 0; i < odp.length; i++) {
+        if (/teleportowa/i.test(odp[i].tekst) && !/warunk|zezwoleni/i.test(odp[i].tekst)) {
+          odp[i].el.click();
+          return;
+        }
+      }
+
+      // 4c) cos innego - nie zgadujemy
+      this.przerwijTeleport('nieznany dialog: ' + odp.map(function (o) { return o.tekst; }).join(' | '), now);
     },
 
     gatewayTo(mapId) {
@@ -4699,7 +5148,7 @@ const CSS_HEROS_HUNTER = [
       const g = GAME.gateways();
       let najlepsza = null;
       for (let i = 0; i < g.length; i++) {
-        const nazwa = MAPS.plain(g[i].name);
+        const nazwa = this.nazwaBramy(g[i].name);
         if (!nazwa) continue;
         // Dokladne trafienie albo jedno jest prefiksem drugiego
         // ("dom erniego p.1" vs "dom erniego" rozrozniamy, bo wtedy
@@ -4727,27 +5176,45 @@ const CSS_HEROS_HUNTER = [
     // Jakakolwiek brama na tej mapie, ktora prowadzi do MAPY Z TRASY.
     // Uzywane gdy bramy o dokladnej nazwie nie ma - lepiej wejsc w
     // dowolny dom z trasy niz w srodek lasu.
+    //
+    // Poprawione 09.10 po pętli zmierzonej na żywo (Gefion, mapa 157):
+    // bot chodził 157 -> 158 -> 157 -> 158 co 4 s. Trzy przyczyny naraz:
+    //   1. kroki o nieznanym numerze były pomijane (`id === null`), choć
+    //      dopasowanie idzie po NAZWIE - brama "Eder" stała obok, a krok
+    //      "Eder" nie miał jeszcze numeru, więc był niewidoczny;
+    //   2. prefiks: "Dom Artenii i Tafina p.1" pasował do kroku
+    //      "Dom Artenii i Tafina", więc bot wchodził na piętro spoza trasy;
+    //   3. szukanie od kroku 0, bez pomijania mapy, na której stoimy -
+    //      na p.1 wygrywał powrót na dół, na dole znowu p.1.
+    // Teraz: od bieżącego kroku (z zawinięciem), tylko dokładna nazwa,
+    // bez mapy bieżącej.
     bramaTrasyNaBiezacejMapie() {
       const l = MAPS.all();
       const g = GAME.gateways();
-      let najlepsza = null;
-      let najlepszyKrok = Infinity;
-      for (let i = 0; i < l.length; i++) {
-        if (l[i].id === null) continue;
-        const cel = MAPS.plain(l[i].name);
-        if (!cel) continue;
+      if (!l.length || !g.length) return null;
+      const tu = GAME.rawMap();
+      const tuId = tu && tu.id !== null ? Number(tu.id) : null;
+      const tuNazwa = tu ? MAPS.plain(tu.name) : '';
+      const od = Math.max(0, Math.min(l.length - 1, Number(STORE.data.routeIndex) || 0));
+      for (let k = 0; k < l.length; k++) {
+        const i = (od + k) % l.length;
+        const krok = l[i];
+        if (krok.id !== null && krok.id === tuId) continue;
+        const cel = MAPS.plain(krok.nazwaWpisana || krok.name);
+        if (!cel || cel === tuNazwa) continue;
         for (let j = 0; j < g.length; j++) {
-          const nazwa = MAPS.plain(g[j].name);
-          if (!nazwa) continue;
-          if (nazwa !== cel && nazwa.indexOf(cel) !== 0 && cel.indexOf(nazwa) !== 0) continue;
-          if (i < najlepszyKrok) {
-            najlepszyKrok = i;
-            najlepsza = { brama: g[j], krok: i, nazwa: l[i].name };
-          }
-          break;
+          if (this.nazwaBramy(g[j].name) !== cel) continue;
+          return { brama: g[j], krok: i, nazwa: krok.nazwaWpisana || krok.name };
         }
       }
-      return najlepsza;
+      return null;
+    },
+
+    // Nazwa bramy do porównań. Gra dokleja czasem "<br>(Wymaga klucza)",
+    // a plain() zrobiłoby z tego dopisek " br" i dokładne porównanie
+    // by nie przeszło - dlatego tniemy na pierwszym '<'.
+    nazwaBramy(nazwa) {
+      return MAPS.plain(String(nazwa || '').split('<')[0]);
     },
 
     // Najblizsza brama, ktora prowadzi do mapy ktorej jeszcze nie
@@ -4957,7 +5424,14 @@ const CSS_HEROS_HUNTER = [
         // stany rozgrywki, nie blokady do rozwiazania przez gracza.
         // Log i powiadomienie DOKLADNIE RAZ na blokade, zeby nie zasypywac
         // Discordu co minute. W panelu stan widoczny ciągle.
-        const blokady = GAME.lockList();
+        // 'npcdialog' to blokada, ktora gra wstawia przy KAZDEJ otwartej
+        // rozmowie z NPC. Gdy rozmowe prowadzi sam bot (teleport u
+        // zakonnika), to nie jest przeszkoda dla gracza - zmierzone 10.10:
+        // bot otwieral dialog, uznawal go za blokade, przechodzil w WAIT
+        // i sam sobie przerywal teleport. Dialog otwarty przez gracza
+        // (bez this.tp) dalej wstrzymuje bota.
+        const tp = this.tp;
+        const blokady = GAME.lockList().filter(function (b) { return !(tp && b === 'npcdialog'); });
         if (blokady.length) {
           const co = blokady.join(', ');
           if (!this.lockKey || this.lockKey !== co) {
@@ -5132,6 +5606,37 @@ const CSS_HEROS_HUNTER = [
         // samą postać na karcie wyboru (konto może mieć kilka).
         this.logProby = 0;
         this.logOstatnio = 0;
+
+        // Pierwszy takt w grze po zaladowaniu strony = postac weszla do
+        // gry (recznie albo z licznika na stronie glownej), wiec
+        // zaplanowane wejscie jest wykonane. Wczesniej nextRespawnAt nie
+        // byl nigdy kasowany - licznik na www po zwyklym wylogowaniu
+        // wpuszczalby postac z powrotem. Tylko RAZ na zaladowanie strony:
+        // goHome() ustawia nowa godzine tuz przed wylogowaniem i kolejny
+        // takt (zanim strona zdazy przejsc na www) nie moze jej skasowac.
+        if (!this.wejscieOdnotowane) {
+          this.wejscieOdnotowane = true;
+          if (STORE.data.nextRespawnAt) {
+            // Dokladnie: heroByKey(null) zwraca PIERWSZEGO herosa (Zlodzieja),
+            // wiec po "odwolaj" (bez wejscieHeros) bot przelaczal sie na
+            // Zlodzieja (zmierzone 10.10 na experimental). Bez wejscieHeros
+            // zostajemy przy biezacym herosie.
+            const wpis = STORE.data.wejscieHeros ? MAPS.heroByKey(STORE.data.wejscieHeros) : null;
+            const cel = (wpis && wpis.key === STORE.data.wejscieHeros) ? wpis : MAPS.hero();
+            // odwolajReczny tez - odwolanie jest wykonane (patrz kill()).
+            STORE.set({ nextRespawnAt: 0, wejscieKlik: 0, odwolajReczny: 0, wejscieHeros: null });
+            LOG.info('Jestem w grze - zaplanowane wejście wykonane.');
+            // Szukamy herosa z najwczesniejszym respem i mowimy o tym klanowi
+            // (ustalone 10.10). wybierzHeroza() sam pisze "ide za X";
+            // gdy heros sie nie zmienia, piszemy recznie.
+            if (cel && cel.key !== STORE.data.heroKey) {
+              this.wybierzHeroza(cel.key);
+            } else if (cel) {
+              MAPS.usunMinioneRespy(Date.now());
+              GAME.clanChat('ide za ' + cel.nazwa);
+            }
+          }
+        }
         const nick = (GAME.ready() && Engine.hero && Engine.hero.d && Engine.hero.d.nick) || null;
         if (nick && STORE.data.nick !== nick) STORE.set({ nick: nick });
 
@@ -5193,6 +5698,12 @@ const CSS_HEROS_HUNTER = [
         if (this.state !== 'FOUND') {
           UI.tile('atak', 'idle');
           UI.set('atak', '-');
+        }
+
+        // Teleport u zakonnika przejmuje GO/HOME, dopoki trwa.
+        if (this.tp && (this.state === 'GO' || this.state === 'HOME')) {
+          this.teleportTick(map, now);
+          return;
         }
 
         switch (this.state) {
@@ -5326,6 +5837,13 @@ const CSS_HEROS_HUNTER = [
       STORE.set({ spawnIndex: 0, pointSince: 0, stepFails: 0 });
       this.resetGo();
       this.travelAt = 0;
+      // Stara sciezka MUSI zniknac. Zmierzone 09.10: po dojsciu na mape
+      // kroku stepNext() przechodzi w SCAN, zanim followPath() wyczysci
+      // sciezke - wiec przy nastepnym kroku pierwszy takt (1 s) szedl na
+      // "dokonczenie" starej sciezki i nic nie robil. Postoj po kazdym
+      // respie i kazdym przelocie.
+      this.path = null;
+      this.pathIdx = 0;
 
       const all = MAPS.all();
       const n = (STORE.data.routeIndex || 0) + 1;
@@ -5412,7 +5930,12 @@ const CSS_HEROS_HUNTER = [
         pointSince: 0,
         stepFails: 0,
         atakNaKomendę: false,
+        // "heros X!" po zabiciu = rezygnujemy z powrotu i wylogowania
+        // (ustalone 10.10). Zabicia (STORE.zabicia) ZOSTAJA - przy
+        // nastepnym zabiciu bot wroci na najwczesniejszy resp z nich.
+        homeReason: null,
       });
+      MAPS.usunMinioneRespy(Date.now());
       this.path = null;
       this.pathIdx = 0;
       this.resetGo();
@@ -5421,17 +5944,24 @@ const CSS_HEROS_HUNTER = [
       this.foundSince = 0;
       this.goneSince = 0;
       this.fightNoticed = false;
+      this.walczyl = false;
       this.fightSince = 0;
       this.lastAtk = 0;
       this.fightLogged = false;
       this.homeReason = null;
+      this.tp = null;
+      this.tpPrzerwaDo = 0;
 
       UI.build();
       // Powiadomienie na czacie klanowym. Bez tego `heros 2!` dzialalo,
       // ale cicho - uzytkownik widzial tylko zmiane podswietlenia w
       // panelu i myslel, ze komenda przeszla bez skutku (zgłoszone
       // 04.10). "heros 2!" na czacie klanu musi dostac odpowiedz.
-      GAME.clanChat('/k ide za ' + cfg.nazwa);
+      // Bez "/k" na poczatku: kanal klanu ustawia sendChat(..., 'CLAN'),
+      // a gra odrzuca tekst zaczynajacy sie od "/", ktory nie jest jej
+      // komenda (checkIncorrectSlash) - "Tekst zawiera niedozwolone znaki!"
+      // (zgloszone i zmierzone 10.10 na experimental).
+      GAME.clanChat('ide za ' + cfg.nazwa);
 
       // Stan ustawiamy TYLKO gdy bot faktycznie jedzie. Wczesniej
       // `setState('GO')` leciało bezwarunkowo - klikniecie herosa przy
@@ -5493,13 +6023,28 @@ const CSS_HEROS_HUNTER = [
         // Teraz decyduje to, czy PRZESKAKIWANY krok ma cos do
         // sprawdzenia. Ma -> jedziemy po niego i uczymy sie mapy.
         const przeskakiwany = all[idx];
-        const przeskakiwanyMaPunkty = !!(przeskakiwany && !przeskakiwany.pass
-          && przeskakiwany.spawns && przeskakiwany.spawns.length);
+        // WSZYSTKIE pomijane kroki, nie tylko pierwszy. Zmierzone 09.10:
+        // "Krok 8 (Dom Etrefana p.1) ... pomijam do kroku 12" - p.1 to
+        // przelot, wiec skok przeszedl, a razem z nim po cichu przepadl
+        // krok 9 (Dom Etrefana p.2) z respem 5,6.
+        const pomijane = all.slice(idx, nastepny === null ? all.length : nastepny);
+        const przeskakiwanyMaPunkty = pomijane.some(function (k) {
+          return !k.pass && k.spawns && k.spawns.length;
+        });
+        // Brama o DOKLADNIE tej nazwie stoi na tej mapie = nie pomijamy,
+        // tylko wchodzimy i uczymy sie numeru (galaz odkrywania nizej).
+        // Tylko dokladna nazwa: prefiks dalby "Fortyfikacja" zamiast
+        // "Fortyfikacja p.1".
+        const szukanaNazwa = przeskakiwany
+          ? MAPS.plain(przeskakiwany.nazwaWpisana || przeskakiwany.name) : '';
+        const bramaDoNauki = !!szukanaNazwa && GAME.gateways().some(function (g) {
+          return this.nazwaBramy(g.name) === szukanaNazwa;
+        }, this);
         const powrotDoBiezacej = nastepny !== null && map && map.id !== null
           && all[nastepny] && all[nastepny].id !== null
           && Number(all[nastepny].id) === Number(map.id);
 
-        if (nastepny !== null && !powrotDoBiezacej && !przeskakiwanyMaPunkty) {
+        if (nastepny !== null && !powrotDoBiezacej && !przeskakiwanyMaPunkty && !bramaDoNauki) {
           if (this.skipy > CONFIG.SKIP_LIMIT) {
             this.skipy = 0;
             const braki = MAPS.nieznaneKroki();
@@ -5617,6 +6162,9 @@ const CSS_HEROS_HUNTER = [
         LOG.info('Trasa do ' + step.name + ': ' + sciezka.length + ' przeskoków ('
           + sciezka.map(function (k) { return k.to; }).join(' → ') + ')');
         STORE.set({ stepFails: 0 });
+        // Ruszamy w TYM SAMYM takcie. Wczesniej wyznaczenie drogi i
+        // pierwszy krok byly w dwoch taktach, czyli kolejna sekunda postoju.
+        this.followPath(map);
         return;
       }
 
@@ -5629,7 +6177,11 @@ const CSS_HEROS_HUNTER = [
         return;
       }
 
-      // 3) nie ma drogi - po 8 probach (ok. 30 s) pomijamy krok
+      // 3) nie ma drogi pieszo - teleport do bazy herosa, jesli i do niej
+      //    nie da sie dojsc (np. Przewodnik wybrany w Ederze)
+      if (this.zaplanujTeleport('krok ' + step.name)) return;
+
+      // 4) nie ma drogi - po 8 probach (ok. 30 s) pomijamy krok
       const f = (STORE.data.stepFails || 0) + 1;
       STORE.set({ stepFails: f });
       LOG.warn('Brak drogi do ' + step.name + ' (próba ' + f + ') - szukam bramy.');
@@ -5681,9 +6233,10 @@ const CSS_HEROS_HUNTER = [
         LOG.ok('Rozkaz z czatu: bij! Atakuję ' + cfg.nazwa + '.');
         return true;
       }
-      STORE.set({ atakNaKomendę: true });
-      LOG.cmd('Rozkaz z czatu: bij! Bot zacznie bić, gdy znajdzie ' +
-        (cfg ? cfg.nazwa : 'herosa') + '.');
+      // Zapisujemy CZAS rozkazu, nie true - czekaj() sprawdza, czy nie wygasl.
+      STORE.set({ atakNaKomendę: Date.now() });
+      LOG.cmd('Rozkaz z czatu: bij! Bot zacznie bić, jeśli znajdzie ' +
+        (cfg ? cfg.nazwa : 'herosa') + ' w ciągu ' + Math.round(CONFIG.BIJ_WAZNE_MS / 1000) + ' s.');
       return true;
     },
 
@@ -5699,10 +6252,16 @@ const CSS_HEROS_HUNTER = [
         return false;
       }
       const teraz = Date.now();
-      const ileMin = Math.round(ile / 60000);
-      this.foundSince = teraz - ileMin * 60000;
+      // `ile` jest w MINUTACH. Wczesniej dzielone przez 60000 (jak ms),
+      // wiec wychodzilo 0: odliczanie startowalo od pelnego atakPoMin,
+      // a log mowil "atak za 0 min".
+      const atakPo = Number((cfg && cfg.atakPoMin) || 0);
+      const ileMin = atakPo > 0 ? Math.min(Number(ile) || 0, atakPo) : 0;
+      this.foundSince = teraz - Math.max(0, atakPo - ileMin) * 60000;
       this.goneSince = 0;
-      LOG.ok('"czekaj!" - odliczanie cofnięte, atak za ' + ileMin + ' min.');
+      LOG.ok(atakPo > 0
+        ? '"czekaj!" - odliczanie cofnięte, atak za ' + ileMin + ' min.'
+        : '"czekaj!" - ' + (cfg ? cfg.nazwa : 'heros') + ' i tak nie jest atakowany sam (atakPoMin = 0).');
       return true;
     },
 
@@ -5845,9 +6404,23 @@ const CSS_HEROS_HUNTER = [
       // 1) zniknął - rozróżniamy ucieczkę od killa
       if (!info) {
         if (!this.foundSince) { this.setState('GO'); return; }
+        // Trwa nasza walka - heros moze nie byc widoczny na liscie NPC,
+        // ale to nie ucieczka. Nie liczymy znikniecia.
+        if (GAME.inFight()) { this.walczyl = true; this.goneSince = 0; return; }
         if (!this.goneSince) {
           this.goneSince = now;
           LOG.warn(cfg.nazwa + ' zniknął z ekranu - czekam chwilę, czy to nie ucieczka.');
+          return;
+        }
+        // Postac bota brala udzial w walce, a potem heros zniknal = zabity
+        // przez grupe. Wczesniej zabicie rozpoznawal tylko stan FIGHT (gdy
+        // bot sam zaczal bic), wiec kill grupy przy czekajacym bocie
+        // konczyl sie "uciekł - wracam do szukania": bez wylogowania
+        // i bez licznika (wykryte 10.10 przed testem na Przewodniku).
+        if (this.walczyl) {
+          if (now - this.goneSince < 10000) return;
+          this.walczyl = false;
+          this.kill(cfg, map, this.goneSince);
           return;
         }
         if (now - this.goneSince < 20000) return;
@@ -5856,6 +6429,7 @@ const CSS_HEROS_HUNTER = [
         this.goneSince = 0;
         this.foundSince = 0;
         this.fightNoticed = false;
+        this.walczyl = false;
         LOG.warn(cfg.nazwa + ' uciekł - wracam do szukania.');
         this.newRun();
         this.setState('GO');
@@ -5874,17 +6448,26 @@ const CSS_HEROS_HUNTER = [
       const atakPo = (cfg.atakPoMin || 0);
 
       if (GAME.inFight()) {
+        this.walczyl = true;
         if (!this.fightNoticed) {
           this.fightNoticed = true;
           LOG.ok('Ktoś walczy z ' + cfg.nazwa + ' - czekam.');
         }
       } else if (this.fightNoticed) {
         this.fightNoticed = false;
+        // `walczyl` zostaje - koniec walki to zwykle smierc herosa.
         LOG.info(cfg.nazwa + ' - walka się skończyła.');
       }
 
       // "bij!" z czatu - rozkaz bezposredni, omijamy odliczanie
-      if (STORE.data.atakNaKomendę) {
+      // Wartosc to czas rozkazu (ms). Stare `true` z magazynu daje
+      // Number(true) = 1, czyli rozkaz dawno wygasly - tak ma byc.
+      const bijOd = Number(STORE.data.atakNaKomendę) || 0;
+      if (bijOd && now - bijOd > CONFIG.BIJ_WAZNE_MS) {
+        STORE.set({ atakNaKomendę: false });
+        LOG.info('Rozkaz "bij!" wygasł (starszy niż ' + Math.round(CONFIG.BIJ_WAZNE_MS / 1000)
+          + ' s) - czekam normalnie.');
+      } else if (bijOd) {
         STORE.set({ atakNaKomendę: false });
         LOG.ok('Wykonuję rozkaz "bij!" z czatu.');
         this.fightSince = now;
@@ -5986,7 +6569,13 @@ const CSS_HEROS_HUNTER = [
       this.walkaKoniec();
       this.newRun();
       this.homeReason = 'poKillu';
-      STORE.set({ homeReason: 'poKillu' });
+      // odwolajReczny: 0 - nowe zabicie uniewaznia stare "odwolaj X!".
+      // Bez tego kill przed uplywem dawnego odwolania wracal o godzinie
+      // z odwolania (zmierzone 10.10 08:53: Przewodnik zabity, bot
+      // "wracam o 08:54:03 (twoje odwolaj 1 min)" zamiast o 11:36).
+      const zabicia = Object.assign({}, STORE.data.zabicia || {});
+      zabicia[cfg.key] = now;
+      STORE.set({ homeReason: 'poKillu', zabicia: zabicia, odwolajReczny: 0 });
       this.setState('HOME');
     },
 
@@ -5998,6 +6587,7 @@ const CSS_HEROS_HUNTER = [
       this.goneSince = 0;
       this.foundSince = 0;
       this.fightNoticed = false;
+      this.walczyl = false;
     },
 
 
@@ -6082,10 +6672,61 @@ const CSS_HEROS_HUNTER = [
           GAME.logout();
           return;
         }
-        // Czas minal albo komendy nie bylo - wracamy do normalnego
-        // wyliczania i kasujemy flage, zeby nie wisiała w nieskonczonosc.
+        // "odwolaj X!" minelo w drodze do bazy (np. "odwolaj 1min!" przy
+        // dlugim powrocie z teleportem). Wczesniej kod szedl dalej do
+        // zapasowej sciezki i wylogowywal na 120 min (zmierzone 10.10 na
+        // experimental). Odwolanie jest wykonane - szukamy od razu.
+        if (reczny > 0) {
+          STORE.set({ odwolajReczny: 0, nextRespawnAt: 0, homeReason: null });
+          this.homeReason = null;
+          LOG.ok('Odwołanie minęło w drodze do bazy (' + new Date(reczny).toLocaleTimeString('pl-PL')
+            + ') - nie wylogowuję się, szukam od razu.');
+          this.newRun();
+          this.setState('GO');
+          return;
+        }
+        // Komendy nie bylo - wracamy do normalnego wyliczania.
         STORE.set({ odwolajReczny: 0 });
-        // po killu herosa bot czeka do respu; gdy nie znamy czasu - 120 min
+
+        // Po zabiciu: oficjalny najkrotszy resp herosa (respMinMin) liczony
+        // od CHWILI ZABICIA. Wczesniej bot bral najwiekszy czas z calego
+        // Minutnika (moze nalezec do innego elity), usredniał 10 ostatnich
+        // odczytow "zostalo" robionych w roznych chwilach i liczyl od
+        // dojscia do bazy. Minutnik zostaje w logu tylko informacyjnie -
+        // jego zachowania po killu herosa nikt jeszcze nie widzial (10.10).
+        // Kazdy zabity heros osobno (STORE.zabicia) - wracamy na NAJWCZESNIEJSZY
+        // resp i po wejsciu szukamy wlasnie tego herosa (ustalone 10.10).
+        const respy = MAPS.respy();
+        if (respy.length) {
+          const odczyt = GAME.minutnikWiersze();
+          if (odczyt.length) LOG.info('Minutnik (tylko do wiadomości): ' + odczyt.join(' | '));
+          const godz = function (ms) { return new Date(ms).toLocaleTimeString('pl-PL'); };
+          const pierwszy = respy[0];
+          if (pierwszy.kiedy - Date.now() < 60000) {
+            // Resp juz mozliwy (droga trwala dluzej albo wczesniej zabity
+            // heros) - nie ma po co sie wylogowywac.
+            LOG.ok(pierwszy.nazwa + ' może już być (resp od ' + godz(pierwszy.kiedy) + ') - szukam od razu.');
+            this.newRun();
+            this.homeReason = null;
+            STORE.set({ homeReason: null });
+            if (STORE.data.heroKey !== pierwszy.key) { this.wybierzHeroza(pierwszy.key); return; }
+            MAPS.usunMinioneRespy(Date.now());
+            this.setState('GO');
+            return;
+          }
+          STORE.set({ nextRespawnAt: pierwszy.kiedy, wejscieHeros: pierwszy.key,
+            respawnZgloszony: true, runs: (STORE.data.runs || 0) + 1 });
+          LOG.ok('Najwcześniejszy resp: ' + pierwszy.nazwa + ' o ' + godz(pierwszy.kiedy)
+            + (respy.length > 1 ? ' (' + respy.map(function (r) { return r.nazwa + ' ' + godz(r.kiedy); }).join(', ') + ')' : '')
+            + ' - wylogowuję się, potem szukam: ' + pierwszy.nazwa + '.');
+          this.newRun();
+          this.setState('WAIT');
+          GAME.logout();
+          return;
+        }
+
+        // Bez znanego zabicia (np. przeterminowane "odwolaj") albo herosa
+        // bez respMinMin - stary sposob: Minutnik, a bez niego 120 min.
         const timers = GAME.eliteTimers();
         let minutes = CONFIG.RESPAWN_MIN;
         if (timers.length) {
@@ -6132,7 +6773,7 @@ const CSS_HEROS_HUNTER = [
       // do Eder, Przewodnik do Ithan.
       const baza = MAPS.home();
       if (baza && baza.id !== null && baza.id !== undefined) {
-        this.goToMap(baza.id);
+        if (!this.goToMap(baza.id)) this.zaplanujTeleport('powrot do ' + (baza.nazwa || baza.name));
       } else {
         this.goToMap(CONFIG.HOME.id);
       }
@@ -6151,16 +6792,26 @@ const CSS_HEROS_HUNTER = [
       return null;
     },
 
+    // Sama tresc wiadomosci. Zmierzone 10.10: wiersz czatu to
+    //   span.information-part (ts, kanal, guest "[Z]", author "Nick:", "->")
+    //   span.message-part > span.message-section  <- tresc
+    // Wczesniej bralismy caly wiersz ("[Z] Nick: -> bij!"), przez co
+    // sprawdzenia "^(zap|bij|...)" nigdy nie trafialy: przy zatrzymanym
+    // bocie komendy ginely, a blokada powtorek nie dzialala.
+    // Stary sposob zostaje jako zapas, gdyby gra zmienila uklad.
     text(node) {
+      const tresc = node.querySelector && node.querySelector('.message-section');
+      if (tresc) return String(tresc.textContent || '').trim();
       const copy = node.cloneNode(true);
       const skip = copy.querySelectorAll('.ts-section, .channel-section');
       for (let i = 0; i < skip.length; i++) skip[i].parentNode.removeChild(skip[i]);
       return String(copy.textContent || '').trim();
     },
 
+    // Najpierw author-section - guest-section to tylko znacznik "[Z]".
     nick(node) {
-      const n = node.querySelector('.guest-section, .nick-section, .author-section');
-      return n ? String(n.textContent || '').trim() : '';
+      const n = node.querySelector('.author-section') || node.querySelector('.nick-section, .guest-section');
+      return n ? String(n.textContent || '').replace(/:\s*$/, '').trim() : '';
     },
 
     minutes(arg) {
@@ -6195,7 +6846,12 @@ const CSS_HEROS_HUNTER = [
         // goHome(), ktory bez tego warunku przeliczal czas od nowa zaraz
         // po dotarciu do Ithanu (zgłoszone 04.10: "odwolaj 3min!" nie
         // wrócił, bo skrypt ustawił sobie 120 min).
-        STORE.set({ nextRespawnAt: when, homeReason: 'poKillu', odwolajReczny: when });
+        // BEZ nextRespawnAt: ustawia go dopiero goHome() przy wylogowaniu.
+        // Wczesniej komenda ustawiala go od razu, a po F5 w drodze do bazy
+        // pierwszy takt w grze bral to za "wejscie z licznika" i kasowal
+        // odwolanie - bot wylogowal sie potem na 120 min (zmierzone 10.10
+        // na experimental: "odwolaj 1min!", F5, wylogowanie do 00:29).
+        STORE.set({ homeReason: 'poKillu', odwolajReczny: when });
         BOT.newRun();
         BOT.setState('HOME');
         return true;
@@ -6211,18 +6867,28 @@ const CSS_HEROS_HUNTER = [
       // Drugi to edycja rangi przez zaloziciela - go nie ruszamy.
       // zap - zaprasza ostatniego autora wiadomosci w czacie do grupy.
       // Klikamy prawym w jego nick i wybieramy "Zapros do grupy".
-      zap: function () {
-        const nick = GAME.inviteFromChat();
-        if (!nick) {
-          LOG.warn('"zap!" - nie widzę nicku w czacie albo menu nie otworzyło się.');
+      zap: function (wiersz) {
+        // Wlasny "zap!" (napisany z tej postaci) - zapraszanie siebie nie ma sensu.
+        const autorEl = wiersz && wiersz.querySelector && wiersz.querySelector('.author-section');
+        const autor = autorEl ? String(autorEl.textContent || '').replace(/:\s*$/, '').trim() : '';
+        const ja = (Engine.hero && Engine.hero.d && Engine.hero.d.nick) || '';
+        if (autor && ja && autor === ja) {
+          LOG.warn('"zap!" napisane z tej postaci - nie zapraszam samego siebie.');
           return false;
         }
-        LOG.ok('"zap!" - wysyłam zaproszenie do grupy: ' + nick);
-        NOTIFY.send({
-          title: 'Zaproszenie do grupy',
-          description: 'Wysłane do ' + nick,
-          color: 0x8b5cf6,
+        const nick = GAME.inviteFromChat(wiersz, function (ok, kto) {
+          if (ok) {
+            LOG.ok('"zap!" - wysłałem zaproszenie do grupy: ' + kto + '.');
+            NOTIFY.send({ title: 'Zaproszenie do grupy', description: 'Wysłane do ' + kto, color: 0x8b5cf6 });
+          } else {
+            LOG.warn('"zap!" - menu przy "' + kto + '" nie pokazało "Zaproś do grupy" - zaproszenie NIE poszło.');
+          }
         });
+        if (!nick) {
+          LOG.warn('"zap!" - nie widzę nicku w czacie.');
+          return false;
+        }
+        LOG.info('"zap!" - otwieram menu przy ' + nick + '...');
         return true;
       },
 
@@ -6231,12 +6897,24 @@ const CSS_HEROS_HUNTER = [
       // wysyla _g(`party&a=give&id=${memberId}`) - potwierdzenie
       // w grze to "Czy na pewno chcesz przekazac dowodztwo Graczowi %name%?",
       // wiec po kliknieciu musimy potwierdzic.
-      oddaj: function () {
+      // `proby` - ile razy juz czekalismy na okno druzyny. Wczesniej przy
+      // zamknietym oknie funkcja wolala sama siebie co 1,5 s BEZ LIMITU
+      // i za kazdym razem klikala clickParty() - jesli to przelacznik,
+      // okno otwieralo sie i zamykalo w kolko (przeglad 10.10).
+      // Teraz: jeden klik otwierajacy i najwyzej 4 sprawdzenia.
+      oddaj: function (proby) {
+        const n = Number(proby) || 0;
         const okno = document.querySelector('.party-window');
         if (!okno) {
-          LOG.warn('"oddaj d!" - okno drużyny jest zamknięte. Otwieram.');
-          try { Engine.interface.clickParty(); } catch (e) { /* brak */ }
-          setTimeout(function () { CHAT.KOMENDY.oddaj(); }, 1500);
+          if (n >= 4) {
+            LOG.warn('"oddaj d!" - okno drużyny się nie otworzyło (6 s). Przerywam - otwórz drużynę i napisz jeszcze raz.');
+            return false;
+          }
+          if (n === 0) {
+            LOG.warn('"oddaj d!" - okno drużyny jest zamknięte. Otwieram.');
+            try { Engine.interface.clickParty(); } catch (e) { /* brak */ }
+          }
+          setTimeout(function () { CHAT.KOMENDY.oddaj(n + 1); }, 1500);
           return true;
         }
 
@@ -6273,17 +6951,28 @@ const CSS_HEROS_HUNTER = [
         // Przycisk ma klase alert-accept-hotkey - szukamy po klasie,
         // nie po tekscie, bo w napisie jest podpowiedz "Tak [↵]"
         // i dopasowanie /^tak$/ nic nie znajdowalo (sprawdzone 00:13).
+        // Potwierdzamy TYLKO okienko o dowodztwie. Wczesniej klik szedl
+        // w pierwsze lepsze .mAlert z "Tak" - np. w potwierdzenie zaplaty
+        // za teleport, gdyby akurat bylo otwarte (przeglad 10.10).
+        const oknoDowodztwa = function () {
+          const alerty = document.querySelectorAll('.mAlert');
+          for (let i = alerty.length - 1; i >= 0; i--) {
+            if (/dowództw|dowodztw/i.test(String(alerty[i].textContent || ''))) return alerty[i];
+          }
+          return null;
+        };
         const potw = function (proby) {
-          const tak = document.querySelector('.mAlert .alert-accept-hotkey');
+          const alert = oknoDowodztwa();
+          const tak = alert && alert.querySelector('.alert-accept-hotkey');
           if (tak) {
             tak.click();
             LOG.ok('"oddaj d!" - potwierdziłem przekazanie dowództwa: ' + kto + '.');
             return;
           }
-          // zapasowo: przycisk zaczynajacy sie od "Tak"
-          if (!proby) {
-            const alt = [...document.querySelectorAll('.mAlert .button')]
-              .filter(n => /^tak\\b/i.test(String(n.textContent || '').trim()));
+          // zapasowo: przycisk zaczynajacy sie od "Tak" - w tym samym okienku
+          if (alert && !proby) {
+            const alt = [...alert.querySelectorAll('.button')]
+              .filter(n => /^tak\b/i.test(String(n.textContent || '').trim()));
             if (alt.length) {
               alt[0].click();
               LOG.ok('"oddaj d!" - potwierdziłem (zapasowo): ' + kto + '.');
@@ -6291,13 +6980,14 @@ const CSS_HEROS_HUNTER = [
             }
           }
           if (proby > 0) setTimeout(function () { potw(proby - 1); }, 400);
+          else LOG.warn('"oddaj d!" - nie pojawiło się okienko potwierdzenia dowództwa (3 s).');
         };
         potw(8);
         return true;
       },
     },
 
-    handle(raw, source, nick) {
+    handle(raw, source, nick, wiersz) {
       const text = String(raw || '').toLowerCase().trim();
       if (!text) return;
       const who = nick ? ' od ' + nick : '';
@@ -6315,7 +7005,9 @@ const CSS_HEROS_HUNTER = [
         // zatrzymanym botie ginelo cicho, bez logu i bez powiadomienia.
         // Wybor herosa to zmiana ustawienia, nie ruch postaci, wiec
         // nie ma powodu, zeby byl blokowany.
-        const jestKomenda2 = /^(zap|bij|czekaj|oddaj|przyw[oó]|odwo[lł]aj|heros)\b/.test(text);
+        // Te same wzory co nizej - inaczej log "wykonuję" pojawial sie
+        // tez dla "oddaj!" czy "heros!", ktore potem niczego nie robily.
+        const jestKomenda2 = /^(?:bij|czekaj|zap|oddaj\s+d|przyw[oó](?:l|ł)?|odwo[lł]aj(?:\s+\d+\s*(?:min|m|h)?)?|heros\s+\d+)\s*!+$/.test(text);
         if (!jestKomenda2) return;
         LOG.cmd('Czat (' + source + ')' + who + ': ' + text +
           ' (bot zatrzymany - wykonuję samą komendę)');
@@ -6326,7 +7018,10 @@ const CSS_HEROS_HUNTER = [
       // kilka razy ("zap!" x4 - sprawdzone 23:33, "przywo!" x2 - 23:39).
       // Kluczem jest SAM TEKST, bez kanalu - bo to samo zdarzenie przychodzi
       // raz jako wezel, raz jako jego dziecko `.new-chat-message`.
-      const jestKomenda = /^(zap|bij|czekaj|oddaj|przyw[oó]|przyw[oó]l|przyw[oó]ł|odwo[lł]aj)\b/.test(text);
+      // `heros` tez - gra pokazuje wiadomosc klanowa DWA razy (zakladka
+      // klanu i ogolna, dwa osobne elementy strony), wiec bez tego "heros 2!"
+      // wykonywalo sie dwukrotnie (zmierzone 10.10 na experimental).
+      const jestKomenda = /^(zap|bij|czekaj|oddaj|przyw[oó]|przyw[oó]l|przyw[oó]ł|odwo[lł]aj|heros)\b/.test(text);
       if (jestKomenda) {
         const teraz = Date.now();
         if (this.ostatniaKomenda && this.ostatniaKomenda.tekst === text
@@ -6344,7 +7039,10 @@ const CSS_HEROS_HUNTER = [
       // "odwolaj 30m"
       // Argument lapie bez wykrzyknika - "odwolaj 30m!" ma byc
       // tym samym co "odwolaj 30m".
-      let m = text.match(/(?:^|\s)odwo[lł]aj(?:\s+(\S+?))?\s*[!.!]*\s*$/);
+      // Od 10.10 komenda musi byc CALA wiadomoscia i konczyc sie "!".
+      // Wczesniej wystarczylo, ze wiadomosc sie nia KONCZYLA, wiec
+      // "nie bij!" atakowalo, a samo "odwolaj" wylogowywalo na 120 min.
+      let m = text.match(/^odwo[lł]aj(?:\s+(\d+\s*(?:min|m|h)?))?\s*!+$/);
       if (m) {
         LOG.cmd('Czat (' + source + ')' + who + ': odwołaj ' + this.minutes(m[1]) + ' min');
         this.KOMENDY.odwolaj(m[1]);
@@ -6352,28 +7050,28 @@ const CSS_HEROS_HUNTER = [
       }
 
       // "bij!"
-      if (/(?:^|\s)bij\s*[!.!]*\s*$/.test(text)) {
+      if (/^bij\s*!+$/.test(text)) {
         LOG.cmd('Czat (' + source + ')' + who + ': bij!');
         this.KOMENDY.bij();
         return;
       }
 
       // "czekaj!"
-      if (/(?:^|\s)czekaj\s*[!.!]*\s*$/.test(text)) {
+      if (/^czekaj\s*!+$/.test(text)) {
         LOG.cmd('Czat (' + source + ')' + who + ': czekaj!');
         this.KOMENDY.czekaj();
         return;
       }
 
       // "zap!"
-      if (/(?:^|\s)zap\s*[!.!]*\s*$/.test(text)) {
+      if (/^zap\s*!+$/.test(text)) {
         LOG.cmd('Czat (' + source + ')' + who + ': zap!');
-        this.KOMENDY.zap();
+        this.KOMENDY.zap(wiersz);
         return;
       }
 
       // "oddaj d!"
-      if (/(?:^|\s)oddaj\s+d?\s*[!.!]*\s*$/.test(text)) {
+      if (/^oddaj\s+d\s*!+$/.test(text)) {
         LOG.cmd('Czat (' + source + ')' + who + ': oddaj d!');
         this.KOMENDY.oddaj();
         return;
@@ -6382,7 +7080,7 @@ const CSS_HEROS_HUNTER = [
       // "przywo!" / "przywol!" / "przywoł!"
       // UWAGA: regex musi dopuszczac brak spolgloski na koncu - samo
       // "przywo[lł]" NIE lapało "przywo!", przez co komenda byla ignorowana.
-      if (/(?:^|\s)przywo(?:l|ł)?\s*[!.!]*\s*$/.test(text)) {
+      if (/^przyw[oó](?:l|ł)?\s*!+$/.test(text)) {
         LOG.cmd('Czat (' + source + ')' + who + ': przywo!');
         this.KOMENDY.przywo();
         return;
@@ -6392,7 +7090,7 @@ const CSS_HEROS_HUNTER = [
       // Wykrzyknik na koncu dopuszczony - tak jak w know how
       // ("heros x!"). Wczesniej regex go nie przyjmowal, przez co
       // "heros 2!" przepadalo cicho.
-      let mn = text.match(/(?:^|\s)heros\s+(\d+)\s*[!.!]?\s*$/);
+      let mn = text.match(/^heros\s+(\d+)\s*!+$/);
       if (mn) {
         const lista = MAPS.heroList();
         const idx = parseInt(mn[1], 10) - 1;
@@ -6416,7 +7114,14 @@ const CSS_HEROS_HUNTER = [
       if (!this.obrobione) this.obrobione = new WeakSet();
       if (this.obrobione.has(el)) return;
       this.obrobione.add(el);
-      this.bezpiecznie(raw, source, nick);
+      if (this.stara(el)) {
+        const t = String(raw || '').toLowerCase().trim();
+        if (/^(zap|bij|czekaj|oddaj|przyw|odwo|heros)/.test(t)) {
+          LOG.info('Czat: pomijam starą komendę sprzed wczytania strony: "' + t + '"' + (nick ? ' od ' + nick : '') + '.');
+        }
+        return;
+      }
+      this.bezpiecznie(raw, source, nick, el);
     },
 
     // Kazda komenda w osobnym try/catch.
@@ -6426,9 +7131,9 @@ const CSS_HEROS_HUNTER = [
     // ani powiadomienia, ani sladu czemu cos nie zadzialalo. Tak zniklo
     // oddawanie dowodztwa: wyjatkiem na zlym indeksie przycisku
     // (sprawdzone 00:13).
-    bezpiecznie(raw, source, nick) {
+    bezpiecznie(raw, source, nick, wiersz) {
       try {
-        this.handle(raw, source, nick);
+        this.handle(raw, source, nick, wiersz);
       } catch (e) {
         const opis = (e && e.message) ? e.message : String(e);
         LOG.err('Komenda z czatu "' + String(raw || '').trim() + '" padła: ' + opis);
@@ -6441,7 +7146,30 @@ const CSS_HEROS_HUNTER = [
       }
     },
 
+    // Wiadomosc sprzed wczytania strony (historia czatu). Bez tego po
+    // wejsciu do gry stare "odwolaj 30m!" z historii klanu mogloby
+    // wykonac sie drugi raz i znowu wylogowac postac - petla (przeglad
+    // 10.10). Godzina z .ts-section "[08:30]" ma dokladnosc minuty;
+    // przejscie przez polnoc liczymy w obie strony (12 h okna).
+    stara(el) {
+      if (!this.start) return false;
+      const ts = el.querySelector && el.querySelector('.ts-section');
+      const m = ts ? /(\d{1,2}):(\d{2})/.exec(String(ts.textContent || '')) : null;
+      if (!m) return false;
+      const start = new Date(this.start);
+      const roznica = (start.getHours() * 60 + start.getMinutes()) - (parseInt(m[1], 10) * 60 + parseInt(m[2], 10));
+      // > 2 min: tolerancja na zegar komputera rozjechany z zegarem gry -
+      // inaczej swieze komendy moglyby byc brane za stare.
+      return (roznica > 2 && roznica <= 720) || roznica < -720;
+    },
+
     watch() {
+      this.start = Date.now();
+      // Wiadomosci, ktore juz sa na stronie, to historia - oznaczamy je
+      // jako obsluzone, zanim ruszy obserwator i petla co 2 s.
+      if (!this.obrobione) this.obrobione = new WeakSet();
+      const juzSa = document.querySelectorAll('.chat-CLAN-message, .chat-GROUP-message');
+      for (let i = 0; i < juzSa.length; i++) this.obrobione.add(juzSa[i]);
       const process = function (node) {
         if (!node || node.nodeType !== 1) return;
         const src = CHAT.channel(node);
@@ -6479,6 +7207,203 @@ const CSS_HEROS_HUNTER = [
       }, 2000);
 
       LOG.info('Nasłuch czatu aktywny.');
+    },
+  };
+
+  /* =====================================================================
+   *  9b. STRONA GLOWNA - licznik do wejscia do gry
+   *
+   *  Po wylogowaniu (kill herosa, "odwolaj X!") gra przenosi na
+   *  www.margonem.pl. Zmierzone 10.10:
+   *    - nie ma tu Engine ani _g, wiec panel i petla bota tu nie startuja;
+   *      wczesniej nic nie odliczalo i nikt nie wracal do gry
+   *    - `#js-login-box .select-char` - klik OTWIERA okno wyboru postaci
+   *      (nie wchodzi do gry, a tak zakladal GAME.login())
+   *    - `.popup-select-character .charc[data-nick]` - wybiera postac
+   *    - `#js-login-box .enter-game` ("Wejdź do gry") - wchodzi do gry;
+   *      zwykly el.click() dziala, nawet gdy przycisk ma 0x0 px
+   *  Godzine wejscia (nextRespawnAt) zapisuje gra przed wylogowaniem.
+   * =================================================================== */
+
+  const GLOWNA = {
+    pole: null,
+    proby: 0,
+    ostatnio: 0,
+    zgloszono: false,
+
+    jestTu() { return !!document.querySelector('#js-login-box .enter-game'); },
+
+    // Wolane co 400 ms z petli czekania w boot(). Buduje pole raz.
+    sprobuj() {
+      if (this.pole || !this.jestTu()) return;
+      this.zbuduj();
+      this.odswiez();
+      const self = this;
+      setInterval(function () { self.odswiez(); }, 1000);
+    },
+
+    // Plan aktualny, gdy jest godzina i bot nie zostal zatrzymany.
+    // STOPPED = uzytkownik sam zatrzymal bota (albo "Anuluj") - wtedy
+    // stara godzina nie moze nikogo wciagac do gry.
+    plan() {
+      const d = STORE.data;
+      const kiedy = Number(d.nextRespawnAt) || 0;
+      if (!kiedy || d.state === 'STOPPED') return null;
+      const odwolaj = Number(d.odwolajReczny) === kiedy;
+      return {
+        kiedy: kiedy,
+        powod: odwolaj ? 'odwołaj' : (d.homeReason === 'poKillu' ? 'po zabiciu herosa' : ''),
+        heros: (MAPS.hero() || {}).nazwa || '',
+        szacunek: !odwolaj && !d.respawnZgloszony,
+        // Odliczanie dla kazdego zabitego herosa (MAPS.respy), od
+        // najwczesniejszego. Pierwsze z nich to godzina wejscia.
+        respy: MAPS.respy(),
+      };
+    },
+
+    // "1:29:40" albo "28:15"; "~" = czas szacowany.
+    czas(ms, szacunek) {
+      const s = Math.max(0, Math.ceil(ms / 1000));
+      const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sek = s % 60;
+      return (szacunek ? '~' : '') + (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(sek).padStart(2, '0');
+    },
+
+    // Sam napis w okienku logowania, pod "Zalecamy... e-mail" (ustalone
+    // 10.10 ze zrzutu od uzytkownika). Czcionke i kolor dziedziczymy
+    // z okienka gry (Arimo 15 px, rgb(223,202,162)), przyciski maja klase
+    // gry `c-btn` - jak jej "Wejdź do gry".
+    zbuduj() {
+      const p = document.createElement('div');
+      p.id = 'hh-glowna';
+      p.style.cssText = 'display:none;margin-top:14px;text-align:center;color:rgb(223,202,162);';
+      this.glowny = document.createElement('div');
+      this.glowny.style.whiteSpace = 'pre-line';   // kilka odliczan = kilka linijek
+      const przyciski = document.createElement('div');
+      przyciski.style.cssText = 'margin-top:10px;display:flex;gap:8px;justify-content:center;';
+      const self = this;
+      const guzik = function (tekst, fn) {
+        const b = document.createElement('div');
+        b.className = 'c-btn';
+        b.setAttribute('role', 'button');
+        b.tabIndex = 0;
+        b.textContent = tekst;
+        b.addEventListener('click', fn);
+        b.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); } });
+        przyciski.appendChild(b);
+        return b;
+      };
+      this.guzikTeraz = guzik('Wejdź teraz', function () {
+        STORE.set({ nextRespawnAt: Date.now() });
+        self.proby = 0;
+        self.ostatnio = 0;
+        self.odswiez();
+      });
+      guzik('Anuluj', function () {
+        STORE.set({ nextRespawnAt: 0, odwolajReczny: 0, state: 'STOPPED' });
+        LOG.info('Strona główna: automatyczne wejście anulowane, bot zatrzymany.');
+        self.odswiez();
+      });
+      p.appendChild(this.glowny);
+      p.appendChild(przyciski);
+      // Za "Zalecamy... e-mail", a gdy go nie ma (zamkniety "X") -
+      // na koniec okienka logowania. Bez okienka (inny uklad strony)
+      // pola nie budujemy wcale - jestTu() i tak by nie przepuscil.
+      const box = document.querySelector('#js-login-box');
+      const info = box && box.querySelector('.disabled-enter-game-info');
+      if (info && info.parentNode === box) box.insertBefore(p, info.nextSibling);
+      else if (box) box.appendChild(p);
+      else (document.body || document.documentElement).appendChild(p);
+      this.pole = p;
+    },
+
+    odswiez() {
+      if (!this.pole) return;
+      const plan = this.plan();
+      if (!plan) { this.pole.style.display = 'none'; return; }
+      this.pole.style.display = 'block';
+      const teraz = Date.now();
+      const godz = new Date(plan.kiedy).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+
+      if (teraz < plan.kiedy) {
+        const self = this;
+        // Jedna linijka na kazdego zabitego herosa, ktorego resp jeszcze
+        // nie minal (ustalone 10.10: "dwa odliczania"); odwolanie osobno,
+        // na gorze. Bez zapisanych zabic - stara pojedyncza linijka.
+        const linie = plan.respy.filter(function (r) { return r.kiedy > teraz; })
+          .map(function (r) { return r.nazwa + ' resp mini za ' + self.czas(r.kiedy - teraz); });
+        if (plan.powod === 'odwołaj') {
+          linie.unshift('Odwołanie: ponowne wejście za ' + this.czas(plan.kiedy - teraz));
+        } else if (!linie.length) {
+          linie.push((plan.heros ? plan.heros + ' resp mini za ' : 'Resp mini za ')
+            + this.czas(plan.kiedy - teraz, plan.szacunek));
+        }
+        this.glowny.textContent = linie.join('\n');
+        return;
+      }
+      if (teraz - plan.kiedy > CONFIG.WEJSCIE_SPOZNIONE_MS) {
+        this.glowny.textContent = 'Wejście zaplanowane na ' + godz + ' minęło dawno - kliknij "Wejdź teraz".';
+        return;
+      }
+      this.wejdz(teraz);
+    },
+
+    wejdz(teraz) {
+      if (this.proby >= CONFIG.LOGIN_TRIES) {
+        this.glowny.textContent = 'Nie udało się wejść ' + this.proby + ' razy - wejdź ręcznie.';
+        if (!this.zgloszono) {
+          this.zgloszono = true;
+          LOG.warn('Strona główna: ' + this.proby + ' prób wejścia do gry bez skutku.');
+          try {
+            NOTIFY.send({ title: 'Nie wszedłem do gry', description: 'Strona główna: '
+              + this.proby + ' prób bez skutku. Wejdź ręcznie.', color: 0xdc4b4b });
+          } catch (e) { LOG.warn('Strona główna: powiadomienie nie poszło (' + e.message + ').'); }
+        }
+        return;
+      }
+      const czekaj = CONFIG.LOGIN_COOLDOWN_MS - (teraz - this.ostatnio);
+      if (this.ostatnio && czekaj > 0) {
+        this.glowny.textContent = 'Wchodzę do gry... (próba ' + this.proby + '/' + CONFIG.LOGIN_TRIES
+          + ', następna za ' + Math.ceil(czekaj / 1000) + ' s)';
+        return;
+      }
+      // Druga otwarta karta z ta sama strona: swiezy odczyt z magazynu
+      // (GM_* jest wspolny dla kart) - jesli ktos kliknal przed chwila
+      // albo anulowal, nie klikamy.
+      STORE.load();
+      if (!this.plan()) { this.odswiez(); return; }
+      if (!this.ostatnio && teraz - (Number(STORE.data.wejscieKlik) || 0) < CONFIG.LOGIN_COOLDOWN_MS) {
+        this.glowny.textContent = 'Inna karta właśnie wchodzi do gry.';
+        return;
+      }
+      this.proby++;
+      this.ostatnio = teraz;
+      STORE.set({ wejscieKlik: teraz });
+      this.glowny.textContent = 'Wchodzę do gry... (próba ' + this.proby + '/' + CONFIG.LOGIN_TRIES + ')';
+
+      const nick = String(STORE.data.nick || '');
+      const karta = document.querySelector('#js-login-box .select-char');
+      const wybrana = karta ? String(karta.textContent || '') : '';
+      const przycisk = function () {
+        const b = document.querySelector('#js-login-box .enter-game');
+        if (b) { b.click(); LOG.info('Strona główna: kliknąłem "Wejdź do gry" (' + (nick || 'wybrana postać') + ').'); }
+        else LOG.warn('Strona główna: nie ma przycisku "Wejdź do gry".');
+      };
+      // Wybrana jest inna postac - wybieramy wlasciwa w oknie wyboru.
+      if (nick && karta && wybrana.indexOf(nick) === -1) {
+        karta.click();
+        setTimeout(function () {
+          const lista = document.querySelectorAll('.popup-select-character .charc');
+          let c = null;
+          for (let i = 0; i < lista.length; i++) {
+            if (lista[i].getAttribute('data-nick') === nick) { c = lista[i]; break; }
+          }
+          if (c) c.click();
+          else LOG.warn('Strona główna: nie ma postaci "' + nick + '" na liście - wchodzę wybraną.');
+          setTimeout(przycisk, 600);
+        }, 600);
+        return;
+      }
+      przycisk();
     },
   };
 
@@ -6572,8 +7497,14 @@ const CSS_HEROS_HUNTER = [
     // ma wlasna klamre - wewnetrzna flaga `booted` tego nie lapie.
     // Po zmianie wersji strażnik puszcza świeżą.
     try {
-      if (STRONA.__hhBotWersja === WERSJA) {
-        console.warn('[HH] Wersja ' + WERSJA + ' jest już włączona - drugi egzemplarz się wyłącza.');
+      // KAZDA druga kopia sie wylacza, nie tylko ta sama wersja. Wczesniej
+      // np. 0.21 (czytelna) i 0.22 (min) zainstalowane naraz ruszaly
+      // OBIE - dwa boty, dwa liczniki, podwojne komendy (przeglad 10.10).
+      // Pierwsza kopia pokazuje ostrzezenie w logu (BOT.tick).
+      if (STRONA.__hhBotWersja) {
+        STRONA.__hhKonflikt = WERSJA;
+        console.warn('[HH] Działa już Heros Hunter ' + STRONA.__hhBotWersja + ' - ta kopia ('
+          + WERSJA + ') się wyłącza. Zostaw w Tampermonkeyu tylko jedną.');
         return;
       }
       STRONA.__hhBotWersja = WERSJA;
@@ -6593,6 +7524,8 @@ const CSS_HEROS_HUNTER = [
       let ostrzeżono = false;
       (function czekajNaGre() {
         if (wRamceGra()) { buduj(); return; }
+        // Strona glowna po wylogowaniu - licznik do wejscia (9b).
+        try { GLOWNA.sprobuj(); } catch (e) { console.error('[HH] strona główna', e); }
         if (!ostrzeżono && Date.now() - t0 > 30000) {
           ostrzeżono = true;
           // Bez tego skrypt wyglada jak martwy: panelu nie ma, logu nie ma,
@@ -6650,6 +7583,22 @@ const CSS_HEROS_HUNTER = [
     const swiat = GAME.world();
     LOG.info('Świat: ' + swiat + (swiat === 'nieznany' ? ' (nie udało się wykryć)' : ''));
     UI.swiat(swiat);
+
+    // Druga kopia skryptu wylaczyla sie w boot() i zostawila slad -
+    // mowimy o tym w logu raz (kopie w Tampermonkeyu startuja w dowolnej
+    // kolejnosci, wiec sprawdzamy jeszcze przez pierwsza minute).
+    (function () {
+      let ile = 0;
+      const sprawdz = setInterval(function () {
+        let druga = null;
+        try { druga = STRONA.__hhKonflikt || null; } catch (e) { /* piaskownica */ }
+        if (druga) {
+          clearInterval(sprawdz);
+          LOG.warn('Zainstalowane są DWIE kopie Heros Hunter (działa ' + WERSJA + ', wyłączona ' + druga
+            + '). Zostaw w Tampermonkeyu tylko jedną.');
+        } else if (++ile >= 12) clearInterval(sprawdz);
+      }, 5000);
+    })();
 
     // Rozpoznanie zwojow z ekwipunku. Po build(), zeby pierwszy skan
     // mial juz panel do odswiezenia chipow. Wlasny interwal 20 s,
