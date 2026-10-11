@@ -6,7 +6,11 @@
   "scripts": {
     "build": "node _build.js",
     "check": "node --check heros-hunter.user.js && node _verifyConfig.js && node _verifyCzat.js",
-    "verify": "node _verify.js"
+    "verify": "node _verify.js",
+    "test": "npm run test:jednostkowe && npm run test:e2e",
+    "test:jednostkowe": "node --test zagadka.test.js",
+    "test:e2e": "node zagadka.e2e.js && node zagadka.przeplyw.e2e.js && node zagadka.ryzyka.e2e.js",
+    "build:odczyt": "node zbuduj-odczyt.js"
   },
   "devDependencies": {
     "terser": "^5.36.0"

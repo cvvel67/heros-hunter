@@ -37,3 +37,29 @@ node_modules/
 
 # Notatki robocze — zostaw tylko to, co ma byc w repo
 # NOTES.md jest celowo wgrany: trzyma opis dzialania i znane problemy
+
+# Artefakt generowany: npm run build:odczyt (node zbuduj-odczyt.js)
+odczyt-zagadki.js
+
+# Wyniki odczytow z prawdziwej sesji gry - dane, nie kod
+odczyt-*.json
+
+# Kopie zapasowe - historie trzyma git
+*.orig
+*.bak
+*~
+
+# Logi
+npm-debug.log*
+*.log
+
+# Lokalne sekrety i konfiguracja
+.env
+.env.*
+config.local*.json
+
+# System / edytor
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/

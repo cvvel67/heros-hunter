@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      0.27
+// @version      0.28
 // @description  szuka heros
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
@@ -134,7 +134,7 @@
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '0.27';
+  const WERSJA = '0.28';
 
   /* =====================================================================
    *  1. CONFIG
@@ -221,6 +221,11 @@
     // kto otworzy margonem nastepnego dnia, zostalby od razu wciagniety
     // do gry przez dawno nieaktualny plan.
     WEJSCIE_SPOZNIONE_MS: 30 * 60000,
+
+    // ZAGADKA (captcha gry) - co ile minut przypominac na Discordzie, ze
+    // zagadka wciaz czeka na reczne rozwiazanie. 0 = tylko pierwsze
+    // powiadomienie. Bot sam zagadki nie rozwiazuje (sekcja 9a).
+    ZAGADKA_PRZYPOMNIJ_MIN: 5,
 
     // ZAKONNIK PLANU ASTRALNEGO - teleport miedzy miastami (09.10).
     // Gdy bot nie zna drogi pieszo do kroku trasy ani do bazy herosa
@@ -1185,6 +1190,13 @@
 
         // Menu pojawia sie asynchronicznie - szukamy pozycji "Zapros do grupy".
         const spr = function (proby) {
+          // Ponowienie moze trafic w zagadke, ktora pojawila sie juz po
+          // komendzie - blokada w CHAT.handle tego nie obejmuje.
+          if (ZAGADKA.wykryj()) {
+            LOG.warn('"zap!" przerwane - w grze pojawiła się zagadka.');
+            if (wynik) wynik(false, nick);
+            return null;
+          }
           const itemy = [...document.querySelectorAll('.popup-menu.show .menu-item, .popup-menu.show *')];
           for (let i = 0; i < itemy.length; i++) {
             const t = String(itemy[i].textContent || '').trim();
@@ -4509,7 +4521,7 @@ const CSS_HEROS_HUNTER = [
       // wpisywal borderColor i background prosto w element, przez co
       // badge mial kolorowa obwodke i wypelnienie zalezne od JS - nie
       // od tokenow CSS, wiec nie dawalo sie tego ujednolicic.
-      const wariant = s === 'STOPPED' ? '' : (/^(WAIT|HOME)$/.test(s) ? ' warn' : ' ok');
+      const wariant = s === 'STOPPED' ? '' : (/^(WAIT|HOME|ZAGADKA)$/.test(s) ? ' warn' : ' ok');
       if (this.pillBox) {
         this.pillBox.className = 'hh-pill' + wariant;
         if (this.dot) this.dot.removeAttribute('style');
@@ -5385,12 +5397,56 @@ const CSS_HEROS_HUNTER = [
       return m + ':' + String(s % 60).padStart(2, '0');
     },
 
+    // Po zagadce: liczniki czasu przesuwamy o dlugosc pauzy, zeby czas
+    // stania przy zagadce nie liczyl sie do limitow. Bez tego dluga zagadka
+    // konczyla sie "Timeout respu" (punkt pominiety bez sprawdzenia),
+    // zjedzonym odliczaniem do ataku albo przerwanym teleportem.
+    // Liczniki ruchu (autoGoTo, brama) zerujemy - pozycja mogla sie zmienic.
+    przesunCzasy(ms) {
+      if (!(ms > 0)) return;
+      const d = STORE.data;
+      const zmiany = {};
+      if (d.pointSince) zmiany.pointSince = d.pointSince + ms;
+      const bij = Number(d.atakNaKomendę) || 0;
+      if (bij > 1) zmiany.atakNaKomendę = bij + ms;
+      if (Object.keys(zmiany).length) STORE.set(zmiany);
+      if (this.foundSince) this.foundSince += ms;
+      if (this.goneSince) this.goneSince += ms;
+      if (this.fightSince) this.fightSince += ms;
+      if (this.tp) {
+        if (this.tp.od) this.tp.od += ms;
+        if (this.tp.wybrano) this.tp.wybrano += ms;
+        if (this.tp.ostatniaRozmowa) this.tp.ostatniaRozmowa += ms;
+      }
+      this.resetGo();
+      this.gwSince = 0;
+      this.gwClicked = 0;
+      this.gwRetreatAt = 0;
+      LOG.info('Zagadka trwała ' + Math.round(ms / 1000) + ' s - liczniki czasu przesunięte, trasa bez zmian.');
+    },
+
     /* ---- petla ---- */
 
     tick() {
       if (!this.running) return;
       try {
         const now = Date.now();
+        // Zagadka gry ma pierwszenstwo przed wszystkim: bot stoi i nic nie
+        // wysyla, dopoki gracz jej nie rozwiaze (sekcja 9a). Stan trasy
+        // (routeIndex, FOUND, ...) zostaje nietkniety, wiec po zagadce bot
+        // wraca dokladnie tam, gdzie przerwal.
+        if (ZAGADKA.takt(now)) {
+          if (!this.zagadkaOd) this.zagadkaOd = now;
+          // Co takt, nie raz: UI.build() (przycisk "Stan", wybor herosa)
+          // odtwarza badge z BOT.state i zamazalby ZAGADKA.
+          if (!UI.stateTxt || UI.stateTxt.textContent !== 'ZAGADKA') UI.state('ZAGADKA');
+          return;
+        }
+        if (this.zagadkaOd) {
+          this.przesunCzasy(now - this.zagadkaOd);
+          this.zagadkaOd = 0;
+          UI.state(this.state);
+        }
         // kafelek "Czas" pokazuje czas POLOWANIA (bez czekania na resp),
         // liczony w huntMs dalej. Caly uptime od startu jest w stopce.
         UI.set('uptime', this.huntTime());
@@ -5416,60 +5472,6 @@ const CSS_HEROS_HUNTER = [
           if (now - (this.lastAtk || 0) > CONFIG.ATTACK_EVERY_MS) {
             this.lastAtk = now;
             GAME.hit();
-          }
-        }
-
-        // Gra zatrzymala postac (np. captcha). Bot tego nie rozwiazuje - czeka.
-        // 'dead' i 'battle' sa z filtrewane w GAME.lockList() - to normalne
-        // stany rozgrywki, nie blokady do rozwiazania przez gracza.
-        // Log i powiadomienie DOKLADNIE RAZ na blokade, zeby nie zasypywac
-        // Discordu co minute. W panelu stan widoczny ciągle.
-        // 'npcdialog' to blokada, ktora gra wstawia przy KAZDEJ otwartej
-        // rozmowie z NPC. Gdy rozmowe prowadzi sam bot (teleport u
-        // zakonnika), to nie jest przeszkoda dla gracza - zmierzone 10.10:
-        // bot otwieral dialog, uznawal go za blokade, przechodzil w WAIT
-        // i sam sobie przerywal teleport. Dialog otwarty przez gracza
-        // (bez this.tp) dalej wstrzymuje bota.
-        const tp = this.tp;
-        const blokady = GAME.lockList().filter(function (b) { return !(tp && b === 'npcdialog'); });
-        if (blokady.length) {
-          const co = blokady.join(', ');
-          if (!this.lockKey || this.lockKey !== co) {
-            this.lockKey = co;
-            LOG.warn('Gra blokuje postać (' + co + '). Rozwiąż i bot ruszy dalej.');
-            // Zapamietujemy stan, ktory blokada przerwa, zeby odroczyc
-            // go po zdjeciu blokady. Tylko przy zmianie blokady i tylko
-            // jesli naprawde cos przerwali - przy prawdziwym WAIT
-            // (czekanie na resp) lockState zostaje puste.
-            if (this.state !== 'WAIT') {
-              this.lockState = this.state;
-              this.setState('WAIT');
-            }
-            NOTIFY.send({
-              title: 'Bot zablokowany',
-              description: 'Gra wymaga: ' + co + '. Bot czeka.',
-              color: 0xf59e0b,
-            });
-          }
-          UI.set('map', 'BLOKADA: ' + co);
-          UI.set('resp', 'czekam na gracza');
-          UI.bar2(0, true);
-          return;
-        }
-        if (this.lockKey) {
-          this.lockKey = null;
-          LOG.ok('Blokada zdjęta - lecę dalej.');
-          // Stan przed blokada musi wrocic. Wczesniej skrypt czyscil
-          // tylko lockKey i zostawial WAIT na plakietce - a stan byl
-          // jedynym powodem, dla ktorego maszyna stanow sie zatrzymala
-          // (zgloszone 06.10 22:46: blokada nadpisala HOME na WAIT,
-          // po zdjeciu blokady zostalo WAIT na zawsze).
-          // Warunek 'state === WAIT' chroni prawdziwy WAIT przed
-          // respem - tam lockState jest puste, wiec nic nie cofamy.
-          if (this.state === 'WAIT' && this.lockState) {
-            const wroc = this.lockState;
-            this.lockState = null;
-            this.setState(wroc);
           }
         }
 
@@ -6904,6 +6906,12 @@ const CSS_HEROS_HUNTER = [
       // Teraz: jeden klik otwierajacy i najwyzej 4 sprawdzenia.
       oddaj: function (proby) {
         const n = Number(proby) || 0;
+        // Ponowienie (n > 0) moze trafic w zagadke, ktora pojawila sie juz
+        // po komendzie - blokada w CHAT.handle tego nie obejmuje.
+        if (n > 0 && ZAGADKA.wykryj()) {
+          LOG.warn('"oddaj d!" przerwane - w grze pojawiła się zagadka.');
+          return false;
+        }
         const okno = document.querySelector('.party-window');
         if (!okno) {
           if (n >= 4) {
@@ -6962,6 +6970,10 @@ const CSS_HEROS_HUNTER = [
           return null;
         };
         const potw = function (proby) {
+          if (ZAGADKA.wykryj()) {
+            LOG.warn('"oddaj d!" - nie potwierdzam przekazania dowództwa: w grze pojawiła się zagadka.');
+            return;
+          }
           const alert = oknoDowodztwa();
           const tak = alert && alert.querySelector('.alert-accept-hotkey');
           if (tak) {
@@ -6991,6 +7003,15 @@ const CSS_HEROS_HUNTER = [
       const text = String(raw || '').toLowerCase().trim();
       if (!text) return;
       const who = nick ? ' od ' + nick : '';
+
+      // W trakcie zagadki zadnych akcji - takze z czatu. CHAT dziala poza
+      // BOT.tick() (MutationObserver), wiec pauza w ticku go nie obejmuje:
+      // "zap!", "przywo!", "oddaj d!" klikalyby w gre przy otwartej zagadce.
+      // Sprawdzamy na zywo (wykryj), bo przy zatrzymanym bocie takt nie leci.
+      if (/^(zap|bij|czekaj|oddaj|przyw|odwo|heros)/.test(text) && ZAGADKA.wykryj()) {
+        LOG.warn('Zagadka w grze - pomijam komendę z czatu "' + text + '"' + who + '. Napisz ją po zagadce.');
+        return;
+      }
 
       // Bot zatrzymany - komendy nadal działają (zap!, bij!, przywo!),
       // bo to one sterują całą akcją. Szukanie (GO/SCAN) wstrzymujemy,
@@ -7209,6 +7230,140 @@ const CSS_HEROS_HUNTER = [
       LOG.info('Nasłuch czatu aktywny.');
     },
   };
+
+  // >>> ZAGADKA
+  /* =====================================================================
+   *  9a. ZAGADKA (captcha gry) - PAUZA I POWIADOMIENIE, BEZ ROZWIAZYWANIA
+   *
+   *  Skad wiadomo, jak dziala (zrzut frontendu gry,
+   *  analysis/margonem_frontend/sources/...main.min.js):
+   *    - serwer wysyla pakiet `captcha`, `on_captcha` -> Engine.captcha
+   *    - Engine.captcha pokazuje `.pre-captcha` (odliczanie do startu)
+   *      albo `.captcha-window` i blokuje ruch: Engine.lock.add("captcha")
+   *    - po rozwiazaniu Engine.lock.remove("captcha"); odpowiedz
+   *      weryfikuje serwer gry
+   *
+   *  Skrypt NIE odpowiada na zagadke. Wykrywa ja, wstrzymuje wszystkie
+   *  akcje bota, powiadamia gracza (log + Discord) i wznawia prace po
+   *  jej zniknieciu. `oddechMs` - krotka przerwa po zniknieciu, bo
+   *  warstwa i lock schodza w roznych chwilach.
+   *
+   *  Fabryka z wstrzykiwanymi zaleznosciami, zeby test (zagadka.test.js)
+   *  sprawdzal ten sam kod co gra, bez przegladarki.
+   * =================================================================== */
+  function utworzZagadke(o) {
+    let aktywna = false, od = 0, ping = 0, koniec = 0, zrodlo = null;
+    // Wiadomosc odrzucona przez blokade 2 s w NOTIFY.send - ponawiana
+    // w kolejnych taktach, zeby np. ping o blokadzie nie przepadl.
+    let zalegla = null;
+    const powiadom = function (m) { if (o.notify(m) === false) zalegla = m; };
+
+    const widoczny = function (el) {
+      if (!el || typeof el.getBoundingClientRect !== 'function') return false;
+      const r = el.getBoundingClientRect();
+      return r.width > 20 && r.height > 20;
+    };
+    const tekst = function (el) {
+      return String((el && (el.innerText || el.textContent)) || '').toLowerCase()
+        .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ł/g, 'l');
+    };
+
+    // Ktory sygnal widac: 'lock' | 'pre-captcha' | 'captcha-window' | null.
+    // Pusta `.captcha-layer` lezy w DOM przez cala gre - celowo jej nie
+    // sprawdzamy, inaczej bot stalby bez powodu.
+    function wykryj() {
+      try {
+        const E = o.engine();
+        const l = E && E.lock && E.lock.list;
+        if (Array.isArray(l) && l.indexOf('captcha') !== -1) return 'lock';
+      } catch (e) { /* brak Engine - sprawdzamy DOM */ }
+      let doc = null;
+      try { doc = o.doc(); } catch (e) { doc = null; }
+      if (!doc) return null;
+      // Blokada po zlej odpowiedzi (pakiet `blockade_time_left`): gra robi
+      // close() - zdejmuje lock i usuwa okno - po czym pokazuje mAlert
+      // z `#captcha-timer`, zatrzymuje silnik i po odliczeniu przeladowuje
+      // strone. Bez tego warunku bot uznalby blokade za koniec zagadki.
+      if (doc.querySelector('#captcha-timer')) return 'blokada';
+      if (widoczny(doc.querySelector('.pre-captcha.show'))) return 'pre-captcha';
+      const win = doc.querySelector('.captcha-window');
+      if (widoczny(win) && /zagadka|gwiazdk|odpowied/.test(tekst(win))) return 'captcha-window';
+      return null;
+    }
+
+    // Jeden takt. true = bot ma w tym takcie nic nie robic.
+    function takt(now) {
+      if (zalegla && o.notify(zalegla) !== false) zalegla = null;
+      const z = wykryj();
+      if (z) {
+        const bylo = zrodlo;
+        zrodlo = z;
+        koniec = 0;
+        if (aktywna && z === 'blokada' && bylo !== 'blokada') {
+          o.log.warn('Zagadka: zła odpowiedź - gra nałożyła blokadę i sama przeładuje stronę.');
+          powiadom({
+            title: 'Zagadka: blokada',
+            description: 'Zła odpowiedź. Gra zablokowała postać i przeładuje stronę po odliczeniu.',
+            color: 0xdc4b4b,
+          });
+        }
+        if (!aktywna) {
+          aktywna = true;
+          od = now;
+          ping = now;
+          o.stopWalk();
+          o.log.warn('Zagadka w grze (' + z + ') - bot wstrzymany. Rozwiąż ją ręcznie.');
+          powiadom({
+            title: 'Zagadka w grze',
+            description: 'Bot stoi i czeka. Rozwiąż zagadkę ręcznie - po jej zniknięciu ruszy sam.',
+            color: 0xdc4b4b,
+          });
+        } else if (o.przypomnijMs > 0 && now - ping >= o.przypomnijMs) {
+          ping = now;
+          const min = Math.round((now - od) / 60000);
+          o.log.warn('Zagadka wciąż czeka (' + min + ' min) - bot nadal stoi.');
+          powiadom({
+            title: 'Zagadka wciąż czeka',
+            description: 'Od ' + min + ' min. Bot nadal stoi.',
+            color: 0xdc4b4b,
+          });
+        }
+        return true;
+      }
+      if (aktywna) {
+        aktywna = false;
+        koniec = now;
+        o.log.ok('Zagadka zniknęła po ' + Math.round((now - od) / 1000) + ' s - wracam do pracy.');
+      }
+      if (koniec && now - koniec < o.oddechMs) return true;
+      koniec = 0;
+      return false;
+    }
+
+    return {
+      wykryj: wykryj,
+      takt: takt,
+      stan: function () { return { aktywna: aktywna, zrodlo: zrodlo, od: od }; },
+    };
+  }
+
+  const ZAGADKA = utworzZagadke({
+    engine: function () { return STRONA.Engine; },
+    doc: function () { return typeof document !== 'undefined' ? document : null; },
+    stopWalk: function () { GAME.stopWalk(); },
+    log: LOG,
+    // false = NOTIFY odrzucil wiadomosc (blokada 2 s) - ZAGADKA ja ponowi.
+    // Bez adresu webhooka nie ma czego ponawiac.
+    notify: function (m) {
+      if (!NOTIFY.adres()) { NOTIFY.send(m); return true; }
+      const przed = NOTIFY.last;
+      NOTIFY.send(m);
+      return NOTIFY.last !== przed;
+    },
+    przypomnijMs: (Number(CONFIG.ZAGADKA_PRZYPOMNIJ_MIN) || 0) * 60000,
+    oddechMs: 1500,
+  });
+  // <<< ZAGADKA
 
   /* =====================================================================
    *  9b. STRONA GLOWNA - licznik do wejscia do gry
@@ -7465,6 +7620,9 @@ const CSS_HEROS_HUNTER = [
       + ' | timery ' + (p.timers && p.timers.length
         ? p.timers.map(function (t) { return t.minutes + ' min'; }).join(', ') : 'pusty')
       + ' | NPC ' + p.npcs + ' | bramy ' + (p.gateways ? p.gateways.length : 0));
+    const zg = ZAGADKA.stan();
+    LOG.info('STAN: zagadka ' + (ZAGADKA.wykryj() || 'brak')
+      + (zg.aktywna ? ' | od ' + new Date(zg.od).toLocaleTimeString('pl-PL') : ''));
 
     // SUROWE - dlaczego gra nie jest widziana. `zalogowany nie` ma kilka
     // mozliwych powodow (brak Engine, brak Engine.hero.d, za krotki
