@@ -2,11 +2,11 @@
 // Wkleja funkcje utworzZagadke wycieta z heros-hunter.user.js (ten sam kod,
 // ktory dziala w skrypcie) i zwraca, co widzi w kazdej dostepnej ramce:
 // Engine.lock.list, selektory zagadki, wynik wykryj(). Nie klika, nie wysyla
-// pakietow, nie zmienia stanu gry. Uruchomienie: node zbuduj-odczyt.js
+// pakietow, nie zmienia stanu gry. Uruchomienie: npm run odczyt
 const fs = require('node:fs');
 const path = require('node:path');
 
-const zrodlo = fs.readFileSync(path.join(__dirname, 'heros-hunter.user.js'), 'utf8');
+const zrodlo = fs.readFileSync(path.join(__dirname, '..', 'heros-hunter.user.js'), 'utf8');
 const a = zrodlo.indexOf('function utworzZagadke(');
 const b = zrodlo.indexOf('const ZAGADKA = utworzZagadke(');
 if (a < 0 || b <= a) throw new Error('nie znaleziono utworzZagadke');

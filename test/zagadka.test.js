@@ -7,7 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const zrodlo = fs.readFileSync(path.join(__dirname, 'heros-hunter.user.js'), 'utf8');
+const zrodlo = fs.readFileSync(path.join(__dirname, '..', 'heros-hunter.user.js'), 'utf8');
 const a = zrodlo.indexOf('function utworzZagadke(');
 const b = zrodlo.indexOf('const ZAGADKA = utworzZagadke(');
 assert.ok(a > 0 && b > a, 'nie znaleziono utworzZagadke w skrypcie');

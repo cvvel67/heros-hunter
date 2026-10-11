@@ -15,9 +15,9 @@
 // zapytan jest odrzucana, fetch jest atrapa liczaca powiadomienia.
 const path = require('node:path');
 const fs = require('node:fs');
-const { chromium } = require(path.join(__dirname, '..', 'bot_margon-main', 'node_modules', 'playwright'));
+const { chromium } = require('./playwright');
 
-const PLIK = path.join(__dirname, 'heros-hunter.user.js');
+const PLIK = path.join(__dirname, '..', 'heros-hunter.user.js');
 
 // Wykonywane W PRZEGLADARCE (serializowane przez page.evaluate).
 function przygotujStrone(magazyn) {

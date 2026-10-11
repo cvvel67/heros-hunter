@@ -5,9 +5,9 @@
 // Uruchomienie: node zagadka.e2e.js
 const path = require('node:path');
 const fs = require('node:fs');
-const { chromium } = require(path.join(__dirname, '..', 'bot_margon-main', 'node_modules', 'playwright'));
+const { chromium } = require('./playwright');
 
-const SKRYPT = fs.readFileSync(path.join(__dirname, 'heros-hunter.user.js'), 'utf8');
+const SKRYPT = fs.readFileSync(path.join(__dirname, '..', 'heros-hunter.user.js'), 'utf8');
 
 // Stan startowy magazynu: bot byl w GO na trasie Przewodnika (mapa 8),
 // wiec AUTO_RESUME uruchamia petle sama.

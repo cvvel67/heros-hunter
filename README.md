@@ -111,3 +111,16 @@ Zwoje w zamkniętym worku nie są widoczne — trzeba worek otworzyć.
 `NOTES.md` trzyma pełną historię: co było naprawione, co działa,
 co zostało zmierzone, a co tylko zgadnięte. Warto przeczytać przed
 dodaniem nowej trasy.
+
+## Testy
+
+Lokalnie, bez sieci i bez gry (sztuczny `Engine` + atrapa serwera zagadki):
+
+```
+npm install     # raz: terser + playwright
+npm test        # 12 testow jednostkowych + 3 zestawy e2e
+```
+
+Testy sa w `test/`, narzedzie diagnostyczne w `tools/` (`npm run build:odczyt`).
+Obejmuja glownie obsluge zagadki gry (pauza, powiadomienie, wznowienie);
+ruch, trasy, walka i logowanie nie maja testow automatycznych.

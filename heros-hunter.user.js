@@ -73,19 +73,12 @@
   // ---------------------------------------------------------------
   //  PAMIEĆ: GM_* albo localStorage
   //
-  //  Dlaczego `@grant none`: Tampermonkey MV3 uruchamia skrypt w
-  //  piaskownicy (izolowanym świecie). Globalne obiekty STRONY -
-  //  a w nich trzyma cala gra `Engine` - nie sa w piaskownicy widoczne.
-  //  Zmierzone 06.10: w Tampermonkey `window.Engine` to `undefined`,
-  //  a w tym samym momencie wstrzykniety do swiata strony skrypt
-  //  czytal `Engine.hero.d.id = 928739`, `Engine.lock.list`, cala mape.
-  //  DOM jest wspoldzielony, globalne JS nie - i caly skrypt nie mial
-  //  czego czytac: `mapa brak, kafel null, NPC 0, zalogowany nie`.
-  //
-  //  Przy `@grant none` skrypt leci w swiecie strony: `window.Engine`
-  //  istnieje, a zamiast GM_* dajemy wlasny magazyn na localStorage
-  //  (to samo, co robil testowy shim - dlatego testy mialy zawsze
-  //  zielone światy, a instalacja z GitHuba nie).
+  //  W Tampermonkey (`@grant GM_setValue` / `GM_getValue`) magazynem
+  //  jest GM_* - dane sa niewidoczne dla strony. Gdy API GM nie ma
+  //  (plik uruchomiony poza Tampermonkey, np. wstrzykniety w testach),
+  //  podstawiamy zgodny magazyn na localStorage pod kluczem MAGAZYN.
+  //  Dlaczego skrypt siedzi w piaskownicy i siega do gry przez
+  //  `unsafeWindow` - patrz "SWIAT, W KTORYM ZYJE SKRYPT" wyzej.
   // ---------------------------------------------------------------
   const MAGAZYN = 'HH_MAGAZYN_v1';
   if (typeof GM_getValue !== 'function') {
@@ -914,12 +907,6 @@
       try { Engine.hero.autoGoTo({ x: x, y: y }); return true; } catch (e) { return false; }
     },
 
-    // pojedynczy kafelek - bez wyznaczania sciezki
-    step(x, y) {
-      if (!this.ready()) return false;
-      try { Engine.stepsToSend.append({ x: x, y: y }); return true; } catch (e) { return false; }
-    },
-
     // Wejscie przez brame. Engine.interface.clickGoGateway() robi dokladnie
     // to, co kliknie gracz na kafelku bramy - sprawdzone dziala.
     enterGateway() {
@@ -985,13 +972,6 @@
       return false;
     },
 
-    inBattle() {
-      if (!this.ready() || !Engine.battle) return false;
-      const b = Engine.battle;
-      if (typeof b.w_amount === 'number' && b.w_amount > 0) return true;
-      return b.myteam !== null && b.myteam !== undefined;
-    },
-
     rawMap() {
       if (!this.ready() || !Engine.map || !Engine.map.d) return null;
       const d = Engine.map.d;
@@ -1027,11 +1007,6 @@
         }
         return out;
       } catch (e) { return []; }
-    },
-
-    townNames() {
-      if (!this.ready() || !Engine.map || !Engine.map.gateways) return {};
-      return Engine.map.gateways.townnames || {};
     },
 
     // Respy herosow na biezacej mapie. Zrodlo autorytatywne.
@@ -1149,7 +1124,6 @@
     },
 
     clanChat(tekst) { return this.sendChat(tekst, 'CLAN'); },
-    groupChat(tekst) { return this.sendChat(tekst, 'GROUP'); },
 
     /* ---- klan: dodawanie członków do drużyny ---- */
 
@@ -1840,29 +1814,6 @@
       } catch (e) { return null; }
     },
 
-    // Klik w kafel. Najpierw prawdziwy (jak jest rozszerzenie), a jak
-    // nie ma - autoGoTo, ktore w calym skrypcie jest glowna droga ruchu.
-    clickTile(x, y) {
-      const self = this;
-      const punkt = this.tileToScreen(x, y);
-      if (this.trustedDostepne() && punkt) {
-        return this.trustedClick(punkt.x, punkt.y).then(function (r) {
-          if (r.ok) return { via: 'trusted' };
-          if (typeof STRONA.Engine.hero.autoGoTo === 'function') {
-            STRONA.Engine.hero.autoGoTo({ x: x, y: y }, false);
-            return { via: 'autoGoTo', powod: r.powod };
-          }
-          return { via: null, powod: r.powod };
-        });
-      }
-      if (typeof STRONA.Engine.hero.autoGoTo === 'function') {
-        STRONA.Engine.hero.autoGoTo({ x: x, y: y }, false);
-        return Promise.resolve({ via: 'autoGoTo' });
-      }
-      void self;
-      return Promise.resolve({ via: null, powod: 'brak trusted API i autoGoTo' });
-    },
-
     // ---- dialog z NPC (zmierzone 09.10 na Zakonniku Planu Astralnego) ----
 
     // Widoczne odpowiedzi otwartego dialogu: [{ el, tekst }].
@@ -2168,20 +2119,6 @@
         .trim();
     },
 
-    byId(id) {
-      const l = this.all();
-      for (let i = 0; i < l.length; i++) if (l[i].id === Number(id)) return l[i];
-      return null;
-    },
-
-    byName(name) {
-      const n = this.plain(name);
-      if (!n) return null;
-      const l = this.all();
-      for (let i = 0; i < l.length; i++) if (this.plain(l[i].name) === n) return l[i];
-      return null;
-    },
-
     // krok trasy o podanym numerze (0 = pierwszy).
     // Kroki o nieznanym numerze mapy sa POMIJANE - przy pustym id
     // wszystkie porownania z mapa dalyby false i trasa wygladala
@@ -2193,16 +2130,6 @@
       return l[i];
     },
 
-    // krok trasy, ktorym aktualnie zajmujemy sie przy tej mapie.
-    // Szukamy ostatniego wystapienia mapy - trasa ma powtorzenia (powroty).
-    stepFor(id) {
-      const l = this.all();
-      let out = null;
-      for (let i = 0; i < l.length; i++) if (l[i].id === Number(id)) out = l[i];
-      return out;
-    },
-
-    // Biezaca mapa. ID pierwsze, nazwa jako zapas.
     // Biezaca mapa. Wazne: entry to TYLKO biezacy krok trasy.
     // Wczesniej bralismy ostatnie wystapienie mapy w ROUTE - przez to bot
     // na 6473 (powrot) myslal ze juz obejdzil respa i leciał dalej.
@@ -2260,13 +2187,6 @@
       return m.name + ' (' + (m.id === null ? 'brak' : m.id) + ')';
     },
 
-    // ile krokow trasy ma respa do obejścia (do paska postepu)
-    searchCount() {
-      const l = this.all();
-      let n = 0;
-      for (let i = 0; i < l.length; i++) if (l[i].spawns.length) n++;
-      return n;
-    },
   };
 
   /* =====================================================================
@@ -3058,14 +2978,6 @@ const CSS_HEROS_HUNTER = [
     // aria-label, zeby po odtworzeniu panelu nie zostalo "brak danych"
     // przy realnej wartosci.
     cellNames: {},
-    colors: {
-      // Kolory semantyczne dla badge'a stanu. Panel ustawia je inline
-      // (kolor kropki, tekstu, tla badge'a), wiec musza byc zgodne
-      // z tokenami w CSS_HEROS_HUNTER. Kontrast na tle #14161a:
-      // STOPPED 4.6:1, WAIT/HOME 6.1:1, SCAN/GO/FOUND 5.4:1.
-      STOPPED: '#8a9099', WAIT: '#b8862f', SCAN: '#5a9e73',
-      GO: '#5a9e73', FOUND: '#5a9e73', HOME: '#b8862f',
-    },
 
     css: CSS_HEROS_HUNTER,
 
@@ -3834,16 +3746,7 @@ const CSS_HEROS_HUNTER = [
       this.unread = 0;
     },
 
-    syncLog() {
-      if (!this.logBox) return;
-      for (let i = 0; i < LOG.lines.length; i++) this.push(LOG.lines[i]);
-    },
-
     /* ---------------------------------------------------------------
-     *  OKNO USTAWIEN - webhook Discorda
-     * ------------------------------------------------------------- */
-
-/* ---------------------------------------------------------------
      *  WSPOLNE KOMPONENTY
      *
      *  Wydzielone, zeby wszystkie trzy panele korzystaly z tych samych
@@ -4573,7 +4476,6 @@ const CSS_HEROS_HUNTER = [
     goTrusted: 0,
     goBezmowy: false,
     lastMap: null,
-    notFoundThisMap: false,
 
     // Kasuje wszystkie liczniki ruchu. Wywolywane przy kazdej zmianie
     // stanu i przy skoku do kroku - inaczej pamiec o "autoGoTo nie dziala"
@@ -4987,35 +4889,6 @@ const CSS_HEROS_HUNTER = [
       this.path = null;
       this.pathIdx = 0;
       return false;
-    },
-
-    // BFS po zapamietanym grafie - pierwszy krok w drodze do mapy
-    firstHop(mapId) {
-      const m = GAME.rawMap();
-      const graf = STORE.data.graph || {};
-      if (!m || m.id === null || m.id === Number(mapId)) return null;
-      const prev = {};
-      prev[m.id] = null;
-      let fr = [m.id];
-      while (fr.length) {
-        const nx = [];
-        for (let i = 0; i < fr.length; i++) {
-          const edges = graf[fr[i]] || [];
-          for (let j = 0; j < edges.length; j++) {
-            const e = edges[j];
-            if (e.to === undefined || prev[e.to] !== undefined) continue;
-            prev[e.to] = { from: fr[i], e: e };
-            if (Number(e.to) === Number(mapId)) {
-              let hop = null, c = Number(mapId);
-              while (prev[c]) { hop = prev[c].e; c = prev[c].from; }
-              return hop;
-            }
-            nx.push(e.to);
-          }
-        }
-        fr = nx;
-      }
-      return null;
     },
 
     // Wnetrza miast pomijamy - nigdy nie sa respy, tylko drogi do NPC
@@ -5904,7 +5777,6 @@ const CSS_HEROS_HUNTER = [
         LOG.warn('Nie ma herosa o kluczu "' + key + '".');
         return false;
       }
-      const obecny = MAPS.hero();
       // "Już wybrany" tylko gdy klucz FAKTYCZNIE jest w magazynie.
       // Wczesniej porownanie szlo o MAPS.hero(), ktora przy heroKey = null
       // zwraca pierwszego z ORDER (czyli Złodzieja). Efekt: świeżo
@@ -5996,7 +5868,7 @@ const CSS_HEROS_HUNTER = [
     // stepNext: idzemy dokladnie po kolejnosci ROUTE
     stepNext(map, now) {
       const all = MAPS.all();
-      let idx = STORE.data.routeIndex || 0;
+      const idx = STORE.data.routeIndex || 0;
       let step = MAPS.stepAt(idx);
 
       // Krok po nazwie, ktorego skrypt jeszcze nie umie odwadzic.
@@ -6087,7 +5959,7 @@ const CSS_HEROS_HUNTER = [
           const nazwaKroku = nastepnyKrok !== null
             ? (all[nastepnyKrok].nazwaWpisana || all[nastepnyKrok].name)
             : null;
-          let brama = this.bramaPoNazwie(nazwaKroku);
+          const brama = this.bramaPoNazwie(nazwaKroku);
 
           if (brama) {
             this.path = null;
@@ -6592,7 +6464,6 @@ const CSS_HEROS_HUNTER = [
       this.walczyl = false;
     },
 
-
     // Wolny kafelek obok celu - stajemy blisko, ale nie na nim samym.
     adjacentTo(cel) {
       if (!cel) return null;
@@ -7063,7 +6934,7 @@ const CSS_HEROS_HUNTER = [
       // Od 10.10 komenda musi byc CALA wiadomoscia i konczyc sie "!".
       // Wczesniej wystarczylo, ze wiadomosc sie nia KONCZYLA, wiec
       // "nie bij!" atakowalo, a samo "odwolaj" wylogowywalo na 120 min.
-      let m = text.match(/^odwo[lł]aj(?:\s+(\d+\s*(?:min|m|h)?))?\s*!+$/);
+      const m = text.match(/^odwo[lł]aj(?:\s+(\d+\s*(?:min|m|h)?))?\s*!+$/);
       if (m) {
         LOG.cmd('Czat (' + source + ')' + who + ': odwołaj ' + this.minutes(m[1]) + ' min');
         this.KOMENDY.odwolaj(m[1]);
@@ -7111,7 +6982,7 @@ const CSS_HEROS_HUNTER = [
       // Wykrzyknik na koncu dopuszczony - tak jak w know how
       // ("heros x!"). Wczesniej regex go nie przyjmowal, przez co
       // "heros 2!" przepadalo cicho.
-      let mn = text.match(/^heros\s+(\d+)\s*!+$/);
+      const mn = text.match(/^heros\s+(\d+)\s*!+$/);
       if (mn) {
         const lista = MAPS.heroList();
         const idx = parseInt(mn[1], 10) - 1;
