@@ -1,4 +1,4 @@
-// Test integracyjny sekcji 9a: caly heros-hunter.user.js w headless Chromium,
+// Test integracyjny sekcji 9a: caly src/heros-hunter.js w headless Chromium,
 // na lokalnej stronie ze sztucznym Engine. Siec jest zablokowana (zadnego
 // polaczenia z gra ani z Discordem); fetch jest podstawiony i tylko liczy
 // powiadomienia.
@@ -7,7 +7,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { chromium } = require('./playwright');
 
-const SKRYPT = fs.readFileSync(path.join(__dirname, '..', 'heros-hunter.user.js'), 'utf8');
+const SKRYPT = fs.readFileSync(path.join(__dirname, '..', 'src', 'heros-hunter.js'), 'utf8');
 
 // Stan startowy magazynu: bot byl w GO na trasie Przewodnika (mapa 8),
 // wiec AUTO_RESUME uruchamia petle sama.

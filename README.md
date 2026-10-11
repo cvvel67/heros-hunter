@@ -1,126 +1,71 @@
 # Heros Hunter
 
-Skrypt (Tampermonkey) do Margonem. Obchodzi respy wybranego heroesa,
+Skrypt (Tampermonkey) do Margonem. Obchodzi respy wybranego herosa,
 powiadamia klan na czacie i Discorda, steruje walką z poziomu czatu.
 
 ## Instalacja
 
-Otwórz w przeglądarce (przy zainstalowanym Tampermonkey) adres:
+Przy zainstalowanym Tampermonkey otwórz w przeglądarce:
 
 ```
-https://raw.githubusercontent.com/cvvel67/heros-hunter/main/dist/heros-hunter.min.user.js
+https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 ```
 
-Tampermonkey pokaże stronę instalacji — kliknij **Zainstaluj**. To wersja
-zminifikowana (91 KB, czytana maszynowo). Skrypt sam sprawdza się potem
-i aktualizuje z tego samego adresu, więc więcej nie trzeba nigdzie wgrywać.
+i kliknij **Zainstaluj**. To loader: sam nagłówek userscriptu. Kod główny
+Tampermonkey pobiera raz z jsDelivr (`@require`), sprawdza jego sumę
+sha256 i trzyma u siebie. Kolejne wersje przychodzą same.
 
-Jeśli wolisz wersję czytelną (5342 linie z komentarzami, do czytania
-i ewentualnych poprawek), wklej plik `heros-hunter.user.js` z tego repo
-do nowego skryptu w Tampermonkey i zapisz. Obie wersje wskazują
-`@updateURL` na siebie, więc każda aktualizuje się do tej samej formy.
+Wersja samodzielna (jeden plik, bez pobierania kodu z jsDelivr):
+`dist/heros-hunter.min.user.js`.
 
-Skrypt sam wczytuje się na każdej stronie `*.margonem.pl`.
-Pierwsze uruchomienie wymaga kliknięcia **Start**. Przy kolejnych
-wejściach wznawia pracę sam (opcja `CONFIG.AUTO_RESUME`).
+Pierwsze uruchomienie wymaga kliknięcia **Start**. Webhook Discorda wpisuje
+się w panelu (ikona Discorda). W kodzie jest celowo pusty.
 
-Webhook Discorda wpisuje się w panelu przy ikonie Discorda. W pliku jest
-celowo pusty — adres nie powinien siedzieć w kodzie.
+Jeśli Tampermonkey pokazuje tylko stronę „This page is used as an
+intermediate step…”: w `chrome://extensions` → Tampermonkey → Szczegóły
+włącz **Zezwalaj na skrypty użytkownika**.
 
-## Budowanie
-
-W repo są dwie wersje: `heros-hunter.user.js` (czytelna, źródło prawdy)
-i `dist/heros-hunter.min.user.js` (zminifikowana, instalowana).
-Zbuduj ją po każdej zmianie w źródle:
+## Struktura
 
 ```
-npm install     # raz, instaluje terser
-npm run build
+heros-hunter.user.js        loader - instalowany w Tampermonkey (GENEROWANY)
+src/heros-hunter.js         kod główny - tu się wprowadza zmiany
+dist/heros-hunter.min.user.js  wersja samodzielna, zminifikowana (GENEROWANA)
+tools/build-loader.js       buduje loader (wersja + adres + sha256)
+tools/release.js            sprawdza wszystko i zakłada tag wersji
+tools/zbuduj-odczyt.js      fragment do konsoli gry, tylko odczyt
+_build.js                   buduje dist/ (terser)
+test/                       testy lokalne, bez sieci i bez gry
+NOTES.md                    historia projektu
 ```
 
-`npm run check` uruchamia walidatory (`_verifyConfig.js`,
-`_verifyCzat.js`). Po zmianie podnieś `@version` w nagłówku — inaczej
-Tampermonkey uzna, że nowszej wersji nie ma, i nie zaktualizuje się.
-
-## Co robi
-
-- **Obchodzi respy** wybranego heroesa w kolejności z `CONFIG.HEROES[].route`
-- **Rozpoznaje zwoje przywołania** automatycznie — czyta nazwy przedmiotów
-  z pamięci gry (`TIPS.allTips`) i dopasowuje je do nazwy z konfiguracji
-- **Powiadamia** na czacie klanowym i webhooku Discorda
-- **Steruje walką** komendami z czatu
-
-### Komendy na czacie klanowym lub drużyny
-
-| komenda | działanie |
-|---|---|
-| `zap!` | zaprasza ostatniego autora wiadomości do grupy |
-| `bij!` | atakuje od razu, bez odliczania |
-| `czekaj!` | cofnij odliczanie do ataku o `CONFIG.ATAK_OD_NOWA_MIN` minut |
-| `przywo!` | zużywa zwój przywołania (tylko gdy heros jest na ekranie) |
-| `oddaj d!` | przekazuje dowództwo drużyny |
-| `odwolaj 30m` | przerwij obchód, wyloguj się na 30 minut |
-| `heros 2!` | przełącz na herosa nr 2 z listy |
-
-### Skróty klawiszowe
-
-`Alt+H` — zwiń/rozwiń panel. `Alt+R` — przebuduj panel.
-`Alt+L` — pokaż/ukryj DevLog.
-
-## Konfiguracja
-
-Wszystko w `CONFIG` na początku pliku. Najczęściej zmieniane:
-
-```js
-HOME: { id: 1, name: 'Ithan' }   // punkt powrotu
-RESPAWN_MIN: 120                 // ile czekać po killu, gdy nie zna respu
-AUTO_RESUME: true                // wznawiaj po odświeżeniu strony
-HEROES: [ ... ]                  // lista herosów i ich tras
-```
-
-Nowego heroesa dodaje się przez skopiowanie istniejącego bloku
-i wpisanie `key`, `nazwa`, `zwój`, `img`, `route`.
-
-`route` to lista map w kolejności obchodzenia. Na mapie `spawns` to
-miejsca, gdzie sprawdzać. `{ id: X, pass: true }` = przejść, nie szukać.
-
-## Zwoje przywołania
-
-Skrypt nie potrzebuje wpisywać `item-tpl` — to numer wewnętrzny gry,
-łatwo go pomylić. Wpisuje się **nazwę** zwoju przy herosie:
-
-```js
-zwój: 'Zwój przywołania drużyny na herosa Zły Przewodnik'
-```
-
-Skrypt sam znajdzie numer, skanując ekwipunek co 20 sekund.
-Zwoje w zamkniętym worku nie są widoczne — trzeba worek otworzyć.
-
-## Znałe ograniczenia
-
-- **Trasy nowych heroesa wymagają grafu przejść.** `CONFIG.GATEWAYS`
-  pokrywa okolicę Złego Przewodnika (18 map). Bez wpisu przejść bot
-  szuka bramy na miejscu, co działa, ale niekoniecznie najszybciej.
-- **Punkty respów bywają nieaktualne** — po zmianie w grze trzeba
-  sprawdzić `route`.
-- **Zwój przywołania działa tylko tam, gdzie pojawia się heros.**
-  Skrypt sprawdza to przed zużyciem i nie marnuje sztuk.
-
-## Zgłoszone błędy
-
-`NOTES.md` trzyma pełną historię: co było naprawione, co działa,
-co zostało zmierzone, a co tylko zgadnięte. Warto przeczytać przed
-dodaniem nowej trasy.
-
-## Testy
-
-Lokalnie, bez sieci i bez gry (sztuczny `Engine` + atrapa serwera zagadki):
+## Praca nad kodem
 
 ```
-npm install     # raz: terser + playwright
-npm test        # 12 testow jednostkowych + 3 zestawy e2e
+npm install            # raz: playwright (testy) + terser (dist)
+npm test               # składnia + testy jednostkowe + e2e
 ```
 
-Testy sa w `test/`, narzedzie diagnostyczne w `tools/` (`npm run build:odczyt`).
-Obejmuja glownie obsluge zagadki gry (pauza, powiadomienie, wznowienie);
-ruch, trasy, walka i logowanie nie maja testow automatycznych.
+Testy e2e ładują cały skrypt do Chromium na sztucznej grze (bez sieci).
+Obejmują głównie obsługę zagadki gry i loader. Ruch, trasy, walka
+i logowanie nie mają testów automatycznych: sprawdza się je w grze.
+
+## Wydanie nowej wersji
+
+Wersja ma jedno źródło: `const WERSJA` w `src/heros-hunter.js`
+(plus `version` w `package.json`, pilnowane testem).
+
+1. Zmiany w `src/heros-hunter.js`, podbij `WERSJA` i `version` w `package.json`.
+2. `npm run build:loader` i `npm run build`.
+3. `git commit`.
+4. `npm run release`: sprawdza, czy loader jest aktualny i wszystko
+   zacommitowane, uruchamia testy i zakłada tag `v<WERSJA>`. **Nie wypycha.**
+5. `git push origin <gałąź> v<WERSJA>`.
+
+Uwaga: plik pod tagiem jsDelivr trzyma **na stałe**. Tagu nie da się
+poprawić. Błąd w wydanej wersji naprawia się kolejną wersją
+(np. `0.29` → `0.29.1`). Plik `src/heros-hunter.js` ma w `.gitattributes`
+`-text`, żeby suma sha256 w loaderze zgadzała się z plikiem w repo.
+
+Loader i `dist/` wskazują `@updateURL` na gałąź `main`. Gracze dostają
+aktualizację dopiero wtedy, gdy nowa wersja trafi na `main`.

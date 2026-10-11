@@ -1,13 +1,12 @@
-// Buduje dystrybucyjna, zminifikowana wersje skryptu.
+// Buduje dystrybucyjna, zminifikowana wersje skryptu - samodzielny plik,
+// bez @require (zapasowa forma instalacji, gdy ktos nie chce loadera).
 //
-// Po co: w repo lezy wersja czytelna (heros-hunter.user.js, 5342 linie
-// z komentarzami) i wersja produkcyjna (dist/heros-hunter.min.user.js,
-// ~91 KB, 16 linii). Wersja czytelna zostaje w repo, bo to jedyny
-// miejsce, gdzie jest zapis *dlaczego* kazda poprawka istnieje;
-// instalowana przez Tampermonkey jest zazwyczaj ta z dist.
+// Od 0.29 kod czytelny lezy w src/heros-hunter.js, a heros-hunter.user.js
+// to loader (sam naglowek + @require). Wersja min bierze naglowek
+// z loadera BEZ linii @require i dokleja zminifikowany kod z src/.
 // Kazdy z plikow wskazuje @updateURL na SIEBIE, wiec niezaleznie od
 // tego, ktory zostal zainstalowany, aktualizuje sie do tej samej formy
-// (czytelna -> czytelna, min -> min) i nie zamienia sie miejscem
+// (loader -> loader, min -> min) i nie zamienia sie miejscem
 // z drugim plikiem bez wiedzy uzytkownika.
 //
 // Uzycie:  npm install  (raz, instaluje terser)
@@ -16,7 +15,8 @@ const fs = require('fs');
 const path = require('path');
 const { minify } = require('terser');
 
-const SRC = path.join(__dirname, 'heros-hunter.user.js');
+const LOADER = path.join(__dirname, 'heros-hunter.user.js');
+const KOD = path.join(__dirname, 'src', 'heros-hunter.js');
 const OUT_DIR = path.join(__dirname, 'dist');
 const OUT = path.join(OUT_DIR, 'heros-hunter.min.user.js');
 
@@ -25,12 +25,13 @@ const OUT = path.join(OUT_DIR, 'heros-hunter.min.user.js');
 // (sprawdzone 10.10: root 404, dist 200).
 const RAW = 'https://raw.githubusercontent.com/cvvel67/heros-hunter/main/dist/heros-hunter.min.user.js';
 
-// --- naglowek userscript -----------------------------------------------
-const src = fs.readFileSync(SRC, 'utf8');
-const koniecNaglowka = src.indexOf('// ==/UserScript==');
+// --- naglowek userscript (z loadera, bez @require) ----------------------
+const loader = fs.readFileSync(LOADER, 'utf8');
+const koniecNaglowka = loader.indexOf('// ==/UserScript==');
 if (koniecNaglowka < 0) throw new Error('nie znaleziono // ==/UserScript==');
 
-const naglowek = src.slice(0, koniecNaglowka + '// ==/UserScript=='.length);
+const naglowek = loader.slice(0, koniecNaglowka + '// ==/UserScript=='.length)
+  .replace(/^\/\/ @require\s.*\n/gm, '');
 // W dystrybucji @updateURL/@downloadURL musza wskazywac na dist, inaczej
 // zainstalowany min.js aktualizowalby sam siebie zrodlem czytelnym -
 // czyli zamienilby uzytkownikowi plik bez powodu.
@@ -41,8 +42,11 @@ const naglowekDist = naglowek.replace(
 const wersja = (naglowek.match(/@version\s+(\S+)/) || [])[1];
 if (!wersja) throw new Error('brak @version w naglowku');
 
-// --- sam kod ----------------------------------------------------------
-const body = src.slice(koniecNaglowka + '// ==/UserScript=='.length).replace(/^\s+/, '');
+// --- sam kod (src/) ----------------------------------------------------
+const src = fs.readFileSync(KOD, 'utf8');
+const body = src;
+const wersjaKodu = (src.match(/const WERSJA = '([^']+)'/) || [])[1];
+if (wersjaKodu !== wersja) throw new Error('WERSJA w src (' + wersjaKodu + ') != @version w loaderze (' + wersja + ') - uruchom npm run build:loader');
 
 (async () => {
   const wynik = await minify(body, {

@@ -1,4 +1,4 @@
-// Testy sekcji 9a (ZAGADKA) z heros-hunter.user.js.
+// Testy sekcji 9a (ZAGADKA) z src/heros-hunter.js.
 // Wycinamy z pliku dokladnie funkcje utworzZagadke - test sprawdza ten sam
 // kod, ktory dziala w grze, a nie jego kopie.
 // Uruchomienie: node --test zagadka.test.js
@@ -7,7 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const zrodlo = fs.readFileSync(path.join(__dirname, '..', 'heros-hunter.user.js'), 'utf8');
+const zrodlo = fs.readFileSync(path.join(__dirname, '..', 'src', 'heros-hunter.js'), 'utf8');
 const a = zrodlo.indexOf('function utworzZagadke(');
 const b = zrodlo.indexOf('const ZAGADKA = utworzZagadke(');
 assert.ok(a > 0 && b > a, 'nie znaleziono utworzZagadke w skrypcie');

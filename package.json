@@ -1,16 +1,17 @@
 {
   "name": "heros-hunter",
-  "version": "3.3.0",
+  "version": "0.29.0",
   "private": true,
   "description": "Userscript (Tampermonkey) do Margonem: obchodzi respy wybranego herosa, steruje walka z czatu klanowego, pinguje Discord",
   "scripts": {
+    "build:loader": "node tools/build-loader.js",
     "build": "node _build.js",
-    "check": "node --check heros-hunter.user.js && node _verifyConfig.js && node _verifyCzat.js",
-    "verify": "node _verify.js",
-    "test": "npm run test:jednostkowe && npm run test:e2e",
-    "test:jednostkowe": "node --test test/zagadka.test.js",
+    "check": "node --check src/heros-hunter.js && node --check tools/build-loader.js",
+    "test": "npm run check && npm run test:jednostkowe && npm run test:e2e",
+    "test:jednostkowe": "node --test test/zagadka.test.js test/loader.test.js",
     "test:e2e": "node test/zagadka.e2e.js && node test/zagadka.przeplyw.e2e.js && node test/zagadka.ryzyka.e2e.js",
-    "build:odczyt": "node tools/zbuduj-odczyt.js"
+    "release": "node tools/release.js",
+    "odczyt": "node tools/zbuduj-odczyt.js"
   },
   "devDependencies": {
     "terser": "^5.36.0",

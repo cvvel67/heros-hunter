@@ -17,7 +17,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { chromium } = require('./playwright');
 
-const PLIK = path.join(__dirname, '..', 'heros-hunter.user.js');
+const PLIK = path.join(__dirname, '..', 'src', 'heros-hunter.js');
 
 // Wykonywane W PRZEGLADARCE (serializowane przez page.evaluate).
 function przygotujStrone(magazyn) {
