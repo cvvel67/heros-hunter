@@ -115,7 +115,7 @@
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '1.0';
+  const WERSJA = '1.0.1';
 
   /* =====================================================================
    *  1. CONFIG
@@ -5337,15 +5337,27 @@ const CSS_HEROS_HUNTER = [
           // jeden raz na smierc - nie powtarzamy co tick
           if (!this.deathHandled) {
             this.deathHandled = true;
-            LOG.warn('Postać nieżyje - wracam do Ithanu i zaczynam trasę od nowa.');
-            NOTIFY.send({ title: 'Śmierć', description: 'Postać zginęła. Wracam do Ithanu i lecę od nowa.', color: 0xdc4b4b });
             GAME.stopWalk();
-            this.newRun();
-            // Smierc od gracza to NIE jest kill herosa - nie wylogowujemy.
-            // Wylogowanie zostaje wylacznie dla sytuacji 'poKillu'.
-            this.homeReason = 'poSmierci';
-            STORE.set({ homeReason: 'poSmierci' });
-            this.setState('HOME');
+            // Smierc PRZY herosie (FOUND/FIGHT) = heros zbity (ustalone
+            // 11.10). Skoro przy nim ginie postac, trwa tam walka i nie ma
+            // po co go dalej szukac. Resp od chwili smierci, wylogowanie
+            // jak po killu.
+            const przyHerosie = this.state === 'FOUND' || this.state === 'FIGHT';
+            const info = przyHerosie ? this.heroInfo() : null;
+            const cfgH = przyHerosie ? ((info && info.cfg) || MAPS.hero()) : null;
+            if (cfgH) {
+              LOG.warn('Postać zginęła przy ' + cfgH.nazwa + ' - liczę go jako zbitego i czekam na resp.');
+              this.kill(cfgH, MAPS.current(), now);
+            } else {
+              LOG.warn('Postać nieżyje - wracam do Ithanu i zaczynam trasę od nowa.');
+              NOTIFY.send({ title: 'Śmierć', description: 'Postać zginęła. Wracam do Ithanu i lecę od nowa.', color: 0xdc4b4b });
+              this.newRun();
+              // Smierc z dala od herosa to NIE jest kill herosa - nie
+              // wylogowujemy. Wylogowanie zostaje dla sytuacji 'poKillu'.
+              this.homeReason = 'poSmierci';
+              STORE.set({ homeReason: 'poSmierci' });
+              this.setState('HOME');
+            }
           }
           this.homeAt = 0;
           // UWAGA: dawniej bylo tu `return` i to zamalowalo wszystko.
@@ -5546,7 +5558,7 @@ const CSS_HEROS_HUNTER = [
         }
         // FOUND + heros widoczny  -> spadamy do czekaj()
         // FIGHT + heros widoczny  -> spadamy do walka()
-        // FOUND + heros zniknal   -> czekaj() rozpozna ucieczke/zemiercia
+        // FOUND + heros zniknal   -> czekaj() rozpozna zabicie
 
         // Kafelek "Atak za" ma DWA rozne znaczenia w kodzie: odliczanie
         // do ataku (czekaj()) i godzina powrotnego zalogowania (ekran
@@ -6252,23 +6264,23 @@ const CSS_HEROS_HUNTER = [
     // Bot NIE bije od razu. Po znalezieniu stoi obok i czeka na drużynę
     // (atakPoMin minut). Jak nikt nie zrobił tego wtedy - sam zaczyna.
     //
-    // Rozróżnienie dwóch sytuacji, gdy heros znika z listy NPC:
-    //   zniknął w trakcie walki -> ktoś go zabil (albo my)
-    //   zniknął bez walki        -> uciekł
+    // Heros nie ucieka. Znika z listy NPC (po 20 s potwierdzenia) = zbity,
+    // bez wzgledu na to, kto go zabil i czy bot widzial walke. Smierc bota
+    // przy herosie tez = zbity (obsluga w tick(), przy GAME.dead()).
     czekaj(map, now) {
       const info = this.heroInfo();
       const cfg = info ? info.cfg : MAPS.hero();
       if (!cfg) { this.setState('GO'); return; }
 
-      // 1) zniknął - rozróżniamy ucieczkę od killa
+      // 1) zniknal - heros nie ucieka, wiec to zabicie
       if (!info) {
         if (!this.foundSince) { this.setState('GO'); return; }
         // Trwa nasza walka - heros moze nie byc widoczny na liscie NPC,
-        // ale to nie ucieczka. Nie liczymy znikniecia.
+        // to nadal walka. Nie liczymy znikniecia.
         if (GAME.inFight()) { this.walczyl = true; this.goneSince = 0; return; }
         if (!this.goneSince) {
           this.goneSince = now;
-          LOG.warn(cfg.nazwa + ' zniknął z ekranu - czekam chwilę, czy to nie ucieczka.');
+          LOG.warn(cfg.nazwa + ' zniknął - sprawdzam jeszcze 20 s (chwilowy brak na liście NPC przy doładowaniu mapy).');
           return;
         }
         // Postac bota brala udzial w walce, a potem heros zniknal = zabity
@@ -6284,14 +6296,15 @@ const CSS_HEROS_HUNTER = [
         }
         if (now - this.goneSince < 20000) return;
 
-        // 20 s go nie ma = uciekł, nie zabity. Wracamy do szukania.
-        this.goneSince = 0;
-        this.foundSince = 0;
-        this.fightNoticed = false;
-        this.walczyl = false;
-        LOG.warn(cfg.nazwa + ' uciekł - wracam do szukania.');
-        this.newRun();
-        this.setState('GO');
+        // 20 s go nie ma = ZBITY. Heros nie ucieka, wiec kazde jego
+        // znikniecie liczymy jako zabicie (ustalone 11.10) - takze bez walki
+        // widzianej przez bota: szybka walka (gra rozstrzyga ja bez okna,
+        // Engine.battle.w_amount nie rosnie miedzy taktami - zgloszone 11.10
+        // na Zlodzieju: bot uznal kill za ucieczke i wrocil do petli) albo
+        // zabicie przez innych obok bota. Resp od chwili znikniecia,
+        // wylogowanie jak po killu.
+        LOG.info(cfg.nazwa + ' zniknął - liczę go jako zbitego.');
+        this.kill(cfg, map, this.goneSince);
         return;
       }
 
