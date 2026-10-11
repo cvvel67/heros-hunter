@@ -50,3 +50,13 @@ test('kod glowny: konce linii LF i poprawna skladnia', () => {
   assert.ok(!t.includes('\r'));
   assert.doesNotThrow(() => new Function(t));
 });
+
+test('@icon wskazuje plik ikony z repo spod tagu wersji', () => {
+  const { adresIkony, SCIEZKA_IKONY } = require('../tools/build-loader');
+  const wersja = meta('version')[0];
+  assert.deepEqual(meta('icon'), [adresIkony(wersja)]);
+  const png = fs.readFileSync(path.join(__dirname, '..', SCIEZKA_IKONY));
+  assert.equal(png.slice(1, 4).toString(), 'PNG');
+  assert.equal(png.readUInt32BE(16), 48);
+  assert.equal(png.readUInt32BE(20), 48);
+});

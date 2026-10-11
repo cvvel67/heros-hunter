@@ -20,12 +20,19 @@ const LOADER = path.join(KATALOG, 'heros-hunter.user.js');
 
 const REPO = 'cvvel67/heros-hunter';
 const SCIEZKA_KODU = 'src/heros-hunter.js';
+// Ikona w Tampermonkey: jedna klatka stroju her_kocha_k (postac przodem),
+// 48x48 PNG z przezroczystym tlem. Tez spod tagu wersji, jak kod.
+const SCIEZKA_IKONY = 'assets/ikona.png';
 const AKTUALIZACJE = 'https://raw.githubusercontent.com/' + REPO + '/main/heros-hunter.user.js';
 
 function wersjaZKodu(kod) {
   const m = kod.match(/^\s*const WERSJA = '([0-9][0-9.]*)';$/m);
   if (!m) throw new Error('nie znaleziono `const WERSJA = \'x.y\';` w ' + SCIEZKA_KODU);
   return m[1];
+}
+
+function adresIkony(wersja) {
+  return 'https://cdn.jsdelivr.net/gh/' + REPO + '@v' + wersja + '/' + SCIEZKA_IKONY;
 }
 
 function adresKodu(wersja, sha256) {
@@ -45,6 +52,7 @@ function zbuduj() {
     '// @namespace    https://github.com/' + REPO,
     '// @version      ' + wersja,
     '// @description  szuka heros',
+    '// @icon         ' + adresIkony(wersja),
     '// @updateURL    ' + AKTUALIZACJE,
     '// @downloadURL  ' + AKTUALIZACJE,
     '// @match        https://margonem.pl/*',
@@ -61,7 +69,7 @@ function zbuduj() {
   return { tresc: linie.join('\n') + '\n', wersja, sha256 };
 }
 
-module.exports = { zbuduj, wersjaZKodu, adresKodu, SRC, LOADER, REPO, SCIEZKA_KODU };
+module.exports = { zbuduj, wersjaZKodu, adresKodu, adresIkony, SRC, LOADER, REPO, SCIEZKA_KODU, SCIEZKA_IKONY };
 
 if (require.main === module) {
   const { tresc, wersja, sha256 } = zbuduj();

@@ -1,3 +1,4 @@
 # Kod glowny: bajty w repo musza byc identyczne z plikiem lokalnym,
 # bo loader podaje jego sume sha256 (Tampermonkey ja sprawdza).
 src/heros-hunter.js -text
+*.png binary
