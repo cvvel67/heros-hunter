@@ -1,6 +1,6 @@
 {
   "name": "heros-hunter",
-  "version": "0.30.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Userscript (Tampermonkey) do Margonem: obchodzi respy wybranego herosa, steruje walka z czatu klanowego, pinguje Discord",
   "scripts": {
