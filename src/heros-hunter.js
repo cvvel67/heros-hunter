@@ -115,7 +115,7 @@
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '1.0.1';
+  const WERSJA = '1.0.2';
 
   /* =====================================================================
    *  1. CONFIG
@@ -1222,11 +1222,6 @@
         if (b.indexOf(a) === -1 && a.indexOf(b) === -1) continue;
         STORE.set({ scrolls: Object.assign({}, STORE.data.scrolls, { [cfg.key]: z.tpl }) });
         LOG.ok('Zapamiętałem zwój dla ' + cfg.nazwa + ': "' + z.nazwa + '" → item-tpl-' + z.tpl);
-        NOTIFY.send({
-          title: 'Zwój rozpoznany',
-          description: cfg.nazwa + ' → item-tpl-' + z.tpl,
-          color: 0x22a06b,
-        });
         return { ok: true, nazwa: z.nazwa, tpl: z.tpl, key: cfg.key };
       }
       return { ok: false, powod: 'podpowiedź nie pasuje do żadnego herosa: "' + z.nazwa + '"', nazwa: z.nazwa, tpl: z.tpl };
@@ -1440,11 +1435,6 @@
         }
         if (opis.length) {
           LOG.ok('Zwój przywołania rozpoznany z ekwipunku: ' + opis.join(', '));
-          NOTIFY.send({
-            title: 'Zwój przywołania rozpoznany',
-            description: opis.join('\n') + '\nSkrypt zapamiętał ten numer na przyszłość.',
-            color: 0x5a9e73,
-          });
         }
       }
       this._zwojeOstatnio = Object.assign({}, polaczone);
@@ -2408,10 +2398,14 @@
       // self jest potrzebne, bo w .then() nie ma "this" - tam jest
       // kontekst obietnicy, nie NOTIFY.
       const self = this;
-      const zadanie = this.wyslij(adres, JSON.stringify({
-        username: 'Heros Hunter',
-        embeds: [embed],
-      }));
+      const tresc = { username: 'Heros Hunter', embeds: [embed] };
+      // @everyone tylko na wyrazne zyczenie (dzis: "Znaleziono"). Bez
+      // allowed_mentions Discord moze nie zamienic napisu na ping.
+      if (o.pingWszystkich) {
+        tresc.content = '@everyone';
+        tresc.allowed_mentions = { parse: ['everyone'] };
+      }
+      const zadanie = this.wyslij(adres, JSON.stringify(tresc));
       zadanie.then(function (r) {
         if (r && r.ok) { self.ostrzezoneBrak = false; return; }
         if (r && r.status === 404) {
@@ -4767,7 +4761,6 @@ const CSS_HEROS_HUNTER = [
           const opis = 'Brakuje ' + (cena - zloto) + ' zlota na teleport do ' + tp.cel
             + ' (koszt ' + cena + ', masz ' + zloto + '). Bot staje.';
           LOG.warn(opis);
-          NOTIFY.send({ title: 'Za malo zlota na teleport', description: opis, color: 0xdc4b4b });
           GAME.zamknijDialog();
           this.tp = null;
           this.stop(false);
@@ -5350,7 +5343,6 @@ const CSS_HEROS_HUNTER = [
               this.kill(cfgH, MAPS.current(), now);
             } else {
               LOG.warn('Postać nieżyje - wracam do Ithanu i zaczynam trasę od nowa.');
-              NOTIFY.send({ title: 'Śmierć', description: 'Postać zginęła. Wracam do Ithanu i lecę od nowa.', color: 0xdc4b4b });
               this.newRun();
               // Smierc z dala od herosa to NIE jest kill herosa - nie
               // wylogowujemy. Wylogowanie zostaje dla sytuacji 'poKillu'.
@@ -6164,11 +6156,6 @@ const CSS_HEROS_HUNTER = [
       const stan = GAME.zwojStan(cfg);
       if (stan.ile === 0) {
         LOG.warn(cfg.nazwa + ': zwój się skończył (0 szt). Trzeba kupić/dostać nowy.');
-        NOTIFY.send({
-          title: 'Zwój się skończył',
-          description: cfg.nazwa + ' — 0 szt w ekwipunku. "przywo!" nie zadziała.',
-          color: 0xdc4b4b,
-        });
         return false;
       }
       if (stan.wEq === null) {
@@ -6193,11 +6180,6 @@ const CSS_HEROS_HUNTER = [
             { [cfg.key]: { ile: po, o: Date.now() } });
           UI.build();
           LOG.ok('Zwój użyty! Zostało ' + po + ' szt. (' + wynik.before + ' -> ' + po + ')');
-          NOTIFY.send({
-            title: 'Zwój użyty',
-            description: 'Zwój przywołania dla ' + cfg.nazwa + '. Zostało ' + po + ' szt.',
-            color: 0x8b5cf6,
-          });
         } else {
           LOG.warn('Zwój się nie zużył (' + wynik.before + ' -> ' + po +
             ' szt.). Dwuklik nie zadziałał - trzeba użyć inaczej.');
@@ -6228,6 +6210,7 @@ const CSS_HEROS_HUNTER = [
         ' @' + (hero ? hero.x + ',' + hero.y : '?'));
 
       NOTIFY.send({
+        pingWszystkich: true,
         title: 'Znaleziono ' + kto,
         description: 'Bot stoi obok i czeka na drużynę.',
         color: 0x22a06b,
@@ -6429,7 +6412,7 @@ const CSS_HEROS_HUNTER = [
 
       NOTIFY.send({
         title: 'Zabito ' + cfg.nazwa,
-        description: 'Wracam do Ithanu i czekam na respawn.',
+        description: 'Wracam do ' + (cfg.baza || CONFIG.HOME.name) + ' i czekam na respawn.',
         color: 0xdc2626,
         fields: [
           { name: 'Mapa', value: MAPS.label(map), inline: true },
@@ -6750,7 +6733,6 @@ const CSS_HEROS_HUNTER = [
         const nick = GAME.inviteFromChat(wiersz, function (ok, kto) {
           if (ok) {
             LOG.ok('"zap!" - wysłałem zaproszenie do grupy: ' + kto + '.');
-            NOTIFY.send({ title: 'Zaproszenie do grupy', description: 'Wysłane do ' + kto, color: 0x8b5cf6 });
           } else {
             LOG.warn('"zap!" - menu przy "' + kto + '" nie pokazało "Zaproś do grupy" - zaproszenie NIE poszło.');
           }
@@ -7027,11 +7009,6 @@ const CSS_HEROS_HUNTER = [
       } catch (e) {
         const opis = (e && e.message) ? e.message : String(e);
         LOG.err('Komenda z czatu "' + String(raw || '').trim() + '" padła: ' + opis);
-        NOTIFY.send({
-          title: 'Błąd komendy',
-          description: '"' + String(raw || '').trim() + '" - ' + opis,
-          color: 0xdc4b4b,
-        });
         if (typeof console !== 'undefined') console.error('[HH] komenda', raw, e);
       }
     },
@@ -7221,14 +7198,10 @@ const CSS_HEROS_HUNTER = [
     doc: function () { return typeof document !== 'undefined' ? document : null; },
     stopWalk: function () { GAME.stopWalk(); },
     log: LOG,
-    // false = NOTIFY odrzucil wiadomosc (blokada 2 s) - ZAGADKA ja ponowi.
-    // Bez adresu webhooka nie ma czego ponawiac.
-    notify: function (m) {
-      if (!NOTIFY.adres()) { NOTIFY.send(m); return true; }
-      const przed = NOTIFY.last;
-      NOTIFY.send(m);
-      return NOTIFY.last !== przed;
-    },
+    // Na Discord idą tylko "Znaleziono" i "Zabito" (ustalone 12.10), wiec
+    // zagadka zostaje w logu (o.log) bez wysylki. true = "dostarczone",
+    // zeby fabryka niczego nie ponawiala.
+    notify: function () { return true; },
     przypomnijMs: (Number(CONFIG.ZAGADKA_PRZYPOMNIJ_MIN) || 0) * 60000,
     oddechMs: 1500,
   });
@@ -7377,10 +7350,6 @@ const CSS_HEROS_HUNTER = [
         if (!this.zgloszono) {
           this.zgloszono = true;
           LOG.warn('Strona główna: ' + this.proby + ' prób wejścia do gry bez skutku.');
-          try {
-            NOTIFY.send({ title: 'Nie wszedłem do gry', description: 'Strona główna: '
-              + this.proby + ' prób bez skutku. Wejdź ręcznie.', color: 0xdc4b4b });
-          } catch (e) { LOG.warn('Strona główna: powiadomienie nie poszło (' + e.message + ').'); }
         }
         return;
       }

@@ -66,6 +66,20 @@ const smierc = (nowaMapa) => {
     zbity(await stan(), logi);
   });
 
+  await scenariusz('G) Discord: tylko Znaleziono (@everyone) i Zabito (bez pingu, miasto bazy)', async ({ page, stan, logi }) => {
+    await znajdz(page, stan);
+    await page.evaluate(() => { window.__npc = {}; });
+    await sleep(5000);
+    const ciala = await page.evaluate(() => window.__ciala);
+    const tytuly = ciala.map((c) => c.embeds[0].title);
+    R.sprawdz('na Discord poszly dokladnie 2 wiadomosci', tytuly.length === 2, JSON.stringify(tytuly));
+    const zn = ciala.find((c) => /^Znaleziono /.test(c.embeds[0].title));
+    const zb = ciala.find((c) => /^Zabito /.test(c.embeds[0].title));
+    R.sprawdz('Znaleziono: @everyone + allowed_mentions', !!zn && zn.content === '@everyone' && zn.allowed_mentions && zn.allowed_mentions.parse.indexOf('everyone') !== -1, JSON.stringify(zn && { content: zn.content, am: zn.allowed_mentions }));
+    R.sprawdz('Zabito: bez pingu', !!zb && !zb.content && !zb.allowed_mentions, JSON.stringify(zb && { content: zb.content }));
+    R.sprawdz('Zabito: "Wracam do Ithan" (baza Przewodnika)', !!zb && zb.embeds[0].description === 'Wracam do Ithan i czekam na respawn.', zb && zb.embeds[0].description);
+  });
+
   await scenariusz('B) heros znika, bot juz na innej mapie', async ({ page, stan, logi }) => {
     await znajdz(page, stan);
     await page.evaluate(() => { window.__npc = {}; window.Engine.map.d = { id: 9, name: 'Inna mapa' }; });

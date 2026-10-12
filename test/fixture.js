@@ -25,8 +25,10 @@ function przygotujStrone(magazyn) {
   window.GM_getValue = (k, d) => (k in m ? m[k] : d);
   window.GM_setValue = (k, v) => { m[k] = v; };
   window.__pingi = [];
+  window.__ciala = [];   // pelne wiadomosci wyslane na Discord
   window.fetch = (url, o) => {
     try { window.__pingi.push(JSON.parse(o.body).embeds[0].title); } catch (e) { window.__pingi.push('?'); }
+    try { window.__ciala.push(JSON.parse(o.body)); } catch (e) { /* nie JSON */ }
     return Promise.resolve({ status: 204 });
   };
   window.__ruchy = 0;

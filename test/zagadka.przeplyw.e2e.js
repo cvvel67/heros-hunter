@@ -29,13 +29,14 @@ async function scenariusz(nazwa, opcje, fn) {
     await sleep(1500);
     const s1 = await stan();
     R.sprawdz('zapowiedź (pre-captcha) wstrzymuje bota', s1.badge === 'ZAGADKA', 'badge=' + s1.badge);
-    R.sprawdz('jedno powiadomienie przy zapowiedzi', ileZagadkowych(s1.pingi) === 1, JSON.stringify(s1.pingi));
+    R.sprawdz('zapowiedź: nic na Discord, wpis w logu',
+      ileZagadkowych(s1.pingi) === 0 && logi.some((l) => /Zagadka w grze \(pre-captcha\)/.test(l)), JSON.stringify(s1.pingi));
 
     await page.evaluate(() => window.__serwer.otworz(3));
     await sleep(3000);
     const s2 = await stan();
-    R.sprawdz('okno zagadki: dalej pauza, ten sam epizod (bez 2. powiadomienia)',
-      s2.badge === 'ZAGADKA' && ileZagadkowych(s2.pingi) === 1, JSON.stringify(s2.pingi));
+    R.sprawdz('okno zagadki: dalej pauza, ten sam epizod (jeden wpis w logu)',
+      s2.badge === 'ZAGADKA' && logi.filter((l) => /^Zagadka w grze/.test(l)).length === 1, logi.slice(-3).join(' / '));
     R.sprawdz('lock "captcha" założony przez grę', await page.evaluate(() => window.Engine.lock.list.includes('captcha')));
 
     const zla = await page.evaluate(() => window.__serwer.odpowiedz('1'));
@@ -59,21 +60,23 @@ async function scenariusz(nazwa, opcje, fn) {
     R.sprawdz('trasa zachowana (ten sam krok)', s5.magazyn.routeIndex === 0 && s5.magazyn.heroKey === 'przewodnik');
     R.sprawdz('log: zatrzymanie i wznowienie',
       logi.some((l) => /Zagadka w grze \(pre-captcha\)/.test(l)) && logi.some((l) => /Zagadka zniknęła/.test(l)));
-    R.sprawdz('w całym epizodzie jedno powiadomienie', ileZagadkowych(s5.pingi) === 1, JSON.stringify(s5.pingi));
+    R.sprawdz('w całym epizodzie zero wiadomości Zagadka na Discordzie', ileZagadkowych(s5.pingi) === 0, JSON.stringify(s5.pingi));
   });
 
   // 2) Przypomnienia, gdy nikt nie rozwiazuje (przypomnienie co 3 s tylko w tym tescie)
   await scenariusz('przypomnienia', {
     magazyn: MAGAZYN_GO,
     zmianySkryptu: [['ZAGADKA_PRZYPOMNIJ_MIN: 5,', 'ZAGADKA_PRZYPOMNIJ_MIN: 0.05,']],
-  }, async ({ page, stan }) => {
+  }, async ({ page, stan, logi }) => {
     await sleep(3000);
     await page.evaluate(() => window.__serwer.otworz(3));
     await sleep(8000);   // przypomnienia <= otwarcie+7 s, trzecie >= otwarcie+9 s
     const s = await stan();
     const tytuly = s.pingi.filter((t) => /^Zagadka/.test(t));
-    R.sprawdz('pierwsze powiadomienie + 2 przypomnienia w 8 s',
-      tytuly[0] === 'Zagadka w grze' && tytuly.filter((t) => t === 'Zagadka wciąż czeka').length === 2, JSON.stringify(tytuly));
+    R.sprawdz('przypomnienia nie idą na Discord', tytuly.length === 0, JSON.stringify(tytuly));
+    R.sprawdz('w logu: zagadka + 2 przypomnienia w 8 s',
+      logi.filter((l) => /^Zagadka w grze/.test(l)).length === 1
+        && logi.filter((l) => /^Zagadka wciąż czeka/.test(l)).length === 2, logi.slice(-4).join(' / '));
     await page.evaluate(() => window.__serwer.odpowiedz(window.__serwer.poprawna));
     await sleep(3000);
     const s2 = await stan();
@@ -82,7 +85,7 @@ async function scenariusz(nazwa, opcje, fn) {
   });
 
   // 3) Wyczerpane proby -> blokada gry
-  await scenariusz('blokada po złych odpowiedziach', { magazyn: MAGAZYN_GO }, async ({ page, stan }) => {
+  await scenariusz('blokada po złych odpowiedziach', { magazyn: MAGAZYN_GO }, async ({ page, stan, logi }) => {
     await sleep(3000);
     await page.evaluate(() => window.__serwer.otworz(2));
     await sleep(1500);
@@ -97,7 +100,8 @@ async function scenariusz(nazwa, opcje, fn) {
     const s1 = await stan();
     R.sprawdz('w blokadzie bot NIE wznawia pracy', s1.badge === 'ZAGADKA' && s1.ruchy === s0.ruchy,
       'badge=' + s1.badge + ' ruchy ' + s0.ruchy + '->' + s1.ruchy);
-    R.sprawdz('powiadomienie o blokadzie', s1.pingi.includes('Zagadka: blokada'), JSON.stringify(s1.pingi));
+    R.sprawdz('blokada: w logu, nie na Discordzie',
+      logi.some((l) => /gra nałożyła blokadę/.test(l)) && !s1.pingi.includes('Zagadka: blokada'), JSON.stringify(s1.pingi));
   });
 
   // 4) Zagadka przy znalezionym herosie - stan FOUND przetrwa
@@ -112,7 +116,8 @@ async function scenariusz(nazwa, opcje, fn) {
     await page.evaluate(() => window.__serwer.otworz(3));
     await sleep(2000);
     const s1 = await stan();
-    R.sprawdz('pauza w FOUND', s1.badge === 'ZAGADKA' && s1.pingi.includes('Zagadka w grze'), JSON.stringify(s1.pingi));
+    R.sprawdz('pauza w FOUND (bez wiadomości Zagadka na Discordzie)',
+      s1.badge === 'ZAGADKA' && !s1.pingi.includes('Zagadka w grze'), JSON.stringify(s1.pingi));
     await page.evaluate(() => window.__serwer.odpowiedz(window.__serwer.poprawna));
     await sleep(3000);
     const s2 = await stan();

@@ -69,7 +69,13 @@ function sprawdz(nazwa, ok, szczegoly) {
       : r.abort()));
     const bledy = [];
     page.on('pageerror', (e) => bledy.push(e.message));
-    page.on('console', (m) => { if (/\[HH\] Wyj|Wyjątek/.test(m.text())) bledy.push(m.text()); });
+    const logi = [];
+    page.on('console', (m) => {
+      const t = m.text();
+      if (/\[HH\] Wyj|Wyjątek/.test(t)) bledy.push(t);
+      if (t.indexOf('[HH] ') === 0) logi.push(t.slice(5));
+    });
+    const ileWLogu = (re) => logi.filter((l) => re.test(l)).length;
 
     await page.goto('http://hh.test/');
     await page.evaluate(przygotujStrone, MAGAZYN);
@@ -96,7 +102,8 @@ function sprawdz(nazwa, ok, szczegoly) {
     const s2 = await stan();
     sprawdz('zero ruchow przez 7 s pauzy', s2.ruchy === s1.ruchy, 'ruchy ' + s1.ruchy + '->' + s2.ruchy);
     const zagadkowe = s2.pingi.filter((t) => /Zagadka/.test(t));
-    sprawdz('dokladnie jedno powiadomienie', zagadkowe.length === 1, JSON.stringify(zagadkowe));
+    sprawdz('zagadka nie idzie na Discord', zagadkowe.length === 0, JSON.stringify(zagadkowe));
+    sprawdz('dokladnie jeden wpis "Zagadka w grze" w logu', ileWLogu(/^Zagadka w grze/) === 1, logi.slice(-3).join(' / '));
 
     // 3) zagadka rozwiazana - gra zdejmuje lock
     await page.evaluate(() => { window.Engine.lock.list.length = 0; });
@@ -135,8 +142,9 @@ function sprawdz(nazwa, ok, szczegoly) {
     await sleep(3000);
     const s6 = await stan();
     sprawdz('po usunieciu okna - wznowienie', s6.badge !== 'ZAGADKA', 'badge=' + s6.badge);
-    sprawdz('drugi epizod = drugie powiadomienie',
-      s6.pingi.filter((t) => t === 'Zagadka w grze').length === 2, JSON.stringify(s6.pingi));
+    sprawdz('drugi epizod = drugi wpis w logu', ileWLogu(/^Zagadka w grze/) === 2, logi.slice(-3).join(' / '));
+    sprawdz('dalej zero wiadomosci Zagadka na Discordzie',
+      s6.pingi.filter((t) => /Zagadka/.test(t)).length === 0, JSON.stringify(s6.pingi));
 
     sprawdz('brak wyjatkow w skrypcie', bledy.length === 0, bledy.join(' | '));
   } finally {
