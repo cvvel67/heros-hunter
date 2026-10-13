@@ -115,7 +115,7 @@
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '1.0.2';
+  const WERSJA = '1.0.3';
 
   /* =====================================================================
    *  1. CONFIG
@@ -1145,7 +1145,10 @@
         const nick = String(autor.textContent || '').replace(/:\s*$/, '').trim();
         if (!nick) return null;
 
-        const o = { bubbles: true, cancelable: true, view: window, button: 2 };
+        // Bez `view`: w piaskownicy Tampermonkey `window` to opakowanie, a nie
+        // Window - MouseEvent rzucal TypeError i zap! konczyl sie "nie widze
+        // nicku" (zgloszone 13.10). Gra `view` nie czyta.
+        const o = { bubbles: true, cancelable: true, button: 2 };
         autor.dispatchEvent(new MouseEvent('contextmenu', o));
         autor.dispatchEvent(new MouseEvent('mousedown', o));
         autor.dispatchEvent(new MouseEvent('mouseup', o));
@@ -1174,7 +1177,10 @@
         };
         spr(6);
         return nick;
-      } catch (e) { return null; }
+      } catch (e) {
+        LOG.warn('"zap!" - błąd przy otwieraniu menu: ' + ((e && e.message) || e));
+        return null;
+      }
     },
 
     // ---- zwoje przywolania: rozpoznawanie po nazwie ----
@@ -1491,7 +1497,8 @@
       // Gra nasłuchuje zdarzeń myszy na slocie. Wysyłamy pełną sekwencję
       // (najechanie, przycisnięcie, puszczenie, dwuklik) - sama kliknij()
       // nie wystarcza przy elementach z własnym handlerem.
-      const opcje = { bubbles: true, cancelable: true, view: window };
+      // Bez `view` - patrz inviteFromChat (piaskownica Tampermonkey).
+      const opcje = { bubbles: true, cancelable: true };
       try {
         el.dispatchEvent(new MouseEvent('mouseover', opcje));
         el.dispatchEvent(new MouseEvent('mousedown', opcje));
