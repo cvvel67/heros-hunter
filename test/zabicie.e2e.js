@@ -21,7 +21,7 @@ const KROTKO = [
   ['if (now - this.goneSince < 20000) return;', 'if (now - this.goneSince < 2000) return;'],
   ['if (now - this.goneSince < 10000) return;', 'if (now - this.goneSince < 2000) return;'],
 ];
-const HEROS = { 77: { d: { id: 77, nick: 'Zły Przewodnik', type: 2, x: 12, y: 10 } } };
+const HEROS = { 77: { d: { id: 77, nick: 'Zły Przewodnik', type: 2, x: 12, y: 10, lvl: 75 } } };
 
 async function scenariusz(nazwa, fn) {
   console.log('\n== ' + nazwa);
@@ -77,6 +77,13 @@ const smierc = (nowaMapa) => {
     const zb = ciala.find((c) => /^Zabito /.test(c.embeds[0].title));
     R.sprawdz('Znaleziono: @everyone + allowed_mentions', !!zn && zn.content === '@everyone' && zn.allowed_mentions && zn.allowed_mentions.parse.indexOf('everyone') !== -1, JSON.stringify(zn && { content: zn.content, am: zn.allowed_mentions }));
     R.sprawdz('Zabito: bez pingu', !!zb && !zb.content && !zb.allowed_mentions, JSON.stringify(zb && { content: zb.content }));
+    const pola = (c) => (c ? c.embeds[0].fields : []).map((p) => p.name + '=' + p.value);
+    R.sprawdz('Znaleziono: tytul i pola Nazwa/Lokalizacja/Poziom', !!zn && zn.embeds[0].title === 'Znaleziono Herosa!'
+      && pola(zn).slice(0, 3).join(' | ') === 'Nazwa=Zły Przewodnik | Lokalizacja=Zniszczone Opactwo (12, 10) | Poziom=75 lvl', pola(zn).join(' | '));
+    R.sprawdz('Znaleziono: linijka do skopiowania', !!zn && pola(zn)[3] === 'Informacja do skopiowania=```Znaleziono Herosa! Zły Przewodnik (75lvl) na mapie Zniszczone Opactwo (12, 10)```', pola(zn)[3]);
+    R.sprawdz('Znaleziono: obrazek herosa i stopka Swiat | Mapa', !!zn && /mnich-zly2.gif$/.test((zn.embeds[0].thumbnail || {}).url || '') && / | Zniszczone Opactwo$/.test(zn.embeds[0].footer.text), JSON.stringify(zn && { t: zn.embeds[0].thumbnail, f: zn.embeds[0].footer }));
+    R.sprawdz('Zabito: tytul, pola i Resp od', !!zb && zb.embeds[0].title === 'Zabito Herosa!' && /^Nazwa=Zły Przewodnik | Lokalizacja=Zniszczone Opactwo | Zabity o=dd:dd | Resp od=dd:dd$/.test(pola(zb).join(' | ')), pola(zb).join(' | '));
+    R.sprawdz('Zabito: obrazek herosa', !!zb && /mnich-zly2.gif$/.test((zb.embeds[0].thumbnail || {}).url || ''), JSON.stringify(zb && zb.embeds[0].thumbnail));
     R.sprawdz('Zabito: "Wracam do Ithan" (baza Przewodnika)', !!zb && zb.embeds[0].description === 'Wracam do Ithan i czekam na respawn.', zb && zb.embeds[0].description);
   });
 

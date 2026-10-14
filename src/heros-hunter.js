@@ -115,7 +115,7 @@
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '1.0.3';
+  const WERSJA = '1.1';
 
   /* =====================================================================
    *  1. CONFIG
@@ -534,18 +534,11 @@
       // po nazwie. Wpisanie numeru znosiłoby cały mechanizm i przy zmianie
       // w grze zostawiłoby zepsutą wartość na sztywno.
       //
-      // ── DLACZEGO TRASA JEST PUSTA ──
-      // Spawny ponizej sa prawdziwe (margoworld.pl, 04.10), ale zadna
-      // z tych map NIE JEST w CONFIG.GATEWAYS. Graf przejsc ma 18 map
-      // i pokrywa wylacznie okolice Zlego Przewodnika (Ithan, Uroczysko,
-      // Lazurytowa Grota, Zapomniany Szlak, ...). Bez wejsc w grafie bot
-      // nie ma jak dojechac, wiec route zostaje [] i Start blokuje sie
-      // czytelnym komunikatem. Wpisanie samych spawnow daloby trase, ktora
-      // wyglada poprawnie i nie dziala - to gorsze niz brak.
-      //
-      // Do zrobienia: dopisac te obszary do CONFIG.GATEWAYS (potrzebne
-      // realne przejscia od Ithan, sprawdzone w grze), potem przepisac
-      // spawny z nizej do route. Graf i spawny musza isc razem.
+      // ── OPEK I KOSTEK (14.10) ──
+      // Trasy po nazwach map wg gracza, kazda para kolejnych map sprawdzona na
+      // grafie swiata margoworld. Start i koniec w Andarum Ilami, dojscie
+      // zwojem teleportu do Andarum albo pieszo z Ithanu (CONFIG.GATEWAYS:
+      // Kamienna Jaskinia). Opek przetestowany na zywo 14.10 (47/47 respow).
       {
         key: 'opetany-paladyn',
         nazwa: 'Opętany Paladyn',
@@ -558,7 +551,13 @@
         imgBox: 53,
         atakPoMin: 5,
         respMinMin: 165,            // 2h 45min od zabicia (oficjalnie, 10.10)
-        baza: 'Ithan',
+        // Petla zaczyna sie i konczy w Andarum Ilami (ustalone 14.10): ze
+        // Skal Mroznych Spiewow jest przejscie prosto do Andarum.
+        baza: 'Andarum Ilami',
+        // Zwoj, ktorym bot dostaje sie do bazy, gdy stoi poza trasa (start
+        // w Ithanie, smierc w innym miescie) albo nie zna drogi pieszo.
+        // Uzywany od razu, gra o nic nie pyta (ustalone 14.10).
+        teleport: 'Zwój teleportacji do Andarum',
         // margoworld.pl/npc/view/17494 (stan 05.03.2023):
         //   1387 Skaly Mroznych Spiewow  (8,48) (28,60) (43,21) (44,39)
         //   1730 Cmentarzysko Szerpow    (43,20) (46,60) (63,47) (75,55)
@@ -575,7 +574,29 @@
         //   6624 Krypty Dusz Sniegu p.1 (13,35) (15,18) (30,31) (37,18)
         //   6625 Krypty Dusz Sniegu p.2 (9,12) (12,43) (27,14) (42,29)
         //   6626 Krypty Dusz Sniegu p.3 (5,41) (8,19) (30,29)
-        route: [],
+        // ── TRASA OPKA, 14.10 ──
+        // Kolejnosc i punkty DOKLADNIE wg gracza. Punkty te same co na
+        // margoworld powyzej, inna kolejnosc. Kazda para kolejnych map ma
+        // bezposrednie przejscie (sprawdzone na grafie swiata margoworld,
+        // bot_margon-main/data/world_map_graph.json, 14.10). Numery map
+        // skrypt uczy sie przy pierwszym wejsciu (MAPS.rememberAlias).
+        // Po Skalach petla wraca do bazy (Andarum) i leci od nowa.
+        route: [
+          { nazwa: 'Andarum Ilami', spawns: [{ x: 23, y: 55 }, { x: 17, y: 40 }, { x: 26, y: 18 }, { x: 37, y: 20 }] },
+          { nazwa: 'Świątynia Andarum', spawns: [{ x: 16, y: 26 }, { x: 12, y: 10 }, { x: 34, y: 10 }] },
+          { nazwa: 'Świątynia Andarum - zejście prawe', spawns: [{ x: 7, y: 26 }] },
+          { nazwa: 'Świątynia Andarum - podziemia', spawns: [{ x: 47, y: 7 }] }, // na razie tylko ten jeden resp
+          { nazwa: 'Świątynia Andarum - biblioteka', spawns: [{ x: 12, y: 29 }, { x: 16, y: 47 }, { x: 59, y: 52 }, { x: 61, y: 35 }, { x: 51, y: 7 }] },
+          { nazwa: 'Świątynia Andarum - podziemia', spawns: [{ x: 41, y: 19 }, { x: 24, y: 21 }, { x: 29, y: 9 }, { x: 4, y: 33 }, { x: 11, y: 9 }] }, // reszta respow
+          { nazwa: 'Świątynia Andarum - zejście lewe', spawns: [{ x: 15, y: 16 }] },
+          { nazwa: 'Świątynia Andarum - podziemia', pass: true }, // tylko przejscie
+          { nazwa: 'Świątynia Andarum - lokum mnichów', spawns: [{ x: 10, y: 17 }, { x: 12, y: 44 }, { x: 31, y: 13 }, { x: 51, y: 52 }, { x: 49, y: 20 }] },
+          { nazwa: 'Krypty Dusz Śniegu p.3', spawns: [{ x: 30, y: 29 }, { x: 8, y: 19 }, { x: 5, y: 41 }] },
+          { nazwa: 'Krypty Dusz Śniegu p.2', spawns: [{ x: 9, y: 12 }, { x: 12, y: 43 }, { x: 42, y: 29 }, { x: 27, y: 14 }] },
+          { nazwa: 'Krypty Dusz Śniegu p.1', spawns: [{ x: 15, y: 18 }, { x: 37, y: 18 }, { x: 30, y: 31 }, { x: 13, y: 35 }] },
+          { nazwa: 'Cmentarzysko Szerpów', spawns: [{ x: 63, y: 47 }, { x: 75, y: 55 }, { x: 46, y: 60 }, { x: 43, y: 20 }] },
+          { nazwa: 'Skały Mroźnych Śpiewów', spawns: [{ x: 8, y: 48 }, { x: 28, y: 60 }, { x: 44, y: 39 }, { x: 43, y: 21 }] },
+        ],
       },
       {
         key: 'piekielny-kosciej',
@@ -584,7 +605,12 @@
         img: 'https://micc.garmory-cdn.cloud/obrazki/npc/her/piekielny_kosciej.gif',
         atakPoMin: 5,
         respMinMin: 165,            // 2h 45min od zabicia (oficjalnie, 10.10)
-        baza: 'Ithan',
+        // Jak Opek: start i koniec w Andarum Ilami, zwoj teleportu do Andarum
+        // (ustalone 14.10). Po ostatnim respie (Slepe Wyrobisko, 5 przejsc od
+        // Andarum) bot wraca zwojem, a bez zwoju pieszo.
+        baza: 'Andarum Ilami',
+        teleport: 'Zwój teleportacji do Andarum',
+        powrotZwojem: true,
         // margoworld.pl/npc/view/19743 (stan 17.10.2023):
         //   6628 Zdradzieckie Przejscie p.1 (8,85) (9,42)
         //   6629 Zdradzieckie Przejscie p.2 (9,28) (19,6) (51,45)
@@ -596,7 +622,26 @@
         //   6773 Margoria           (10,47) (30,39) (51,39) (55,15)
         //   6775 Szyb Zdrajcow      (11,34) (32,13) (49,47)
         //   6776 Slepe Wyrobisko    (23,56) (28,24) (35,8) (54,28)
-        route: [],
+        // ── TRASA KOSTKA, 14.10 ──
+        // Kolejnosc i punkty wg gracza. Kazda para kolejnych map ma
+        // bezposrednie przejscie (graf swiata margoworld, 14.10).
+        route: [
+          { nazwa: 'Andarum Ilami', pass: true }, // start - tylko przejscie
+          { nazwa: 'Zdradzieckie Przejście p.1', spawns: [{ x: 9, y: 42 }, { x: 8, y: 85 }] },
+          { nazwa: 'Wylęgarnia Choukkerów p.1', spawns: [{ x: 26, y: 59 }, { x: 23, y: 14 }] },
+          { nazwa: 'Wylęgarnia Choukkerów p.2', spawns: [{ x: 36, y: 24 }, { x: 11, y: 20 }, { x: 54, y: 47 }] },
+          { nazwa: 'Wylęgarnia Choukkerów p.3', spawns: [{ x: 52, y: 42 }, { x: 19, y: 50 }] },
+          { nazwa: 'Wylęgarnia Choukkerów p.2', pass: true }, // powrot - tylko przejscie
+          { nazwa: 'Wylęgarnia Choukkerów p.1', pass: true }, // powrot - tylko przejscie
+          { nazwa: 'Zdradzieckie Przejście p.1', pass: true }, // tylko przejscie
+          { nazwa: 'Zdradzieckie Przejście p.2', spawns: [{ x: 51, y: 45 }, { x: 19, y: 6 }, { x: 9, y: 28 }] },
+          { nazwa: 'Labirynt Margorii', spawns: [{ x: 86, y: 26 }, { x: 62, y: 42 }, { x: 6, y: 35 }, { x: 29, y: 22 }, { x: 87, y: 44 }] },
+          { nazwa: 'Szyb Zdrajców', spawns: [{ x: 32, y: 13 }, { x: 11, y: 34 }, { x: 49, y: 47 }] },
+          { nazwa: 'Labirynt Margorii', pass: true }, // tylko przejscie
+          { nazwa: 'Margoria', spawns: [{ x: 10, y: 47 }, { x: 30, y: 39 }, { x: 51, y: 39 }, { x: 55, y: 15 }] }, // 55,15 dodany na prosbe gracza (z margoworld)
+          { nazwa: 'Kopalnia Margorii', spawns: [{ x: 8, y: 40 }, { x: 58, y: 71 }, { x: 30, y: 92 }] },
+          { nazwa: 'Ślepe Wyrobisko', spawns: [{ x: 54, y: 28 }, { x: 35, y: 8 }, { x: 28, y: 24 }, { x: 23, y: 56 }] }, // ostatni resp, potem zwoj do Andarum
+        ],
       },
 
       ],
@@ -609,6 +654,10 @@
 
     NAMES: {
       1: 'Ithan', 8: 'Zniszczone Opactwo', 38: 'Uroczysko', 150: 'Zapomniany Szlak',
+      6535: 'Kamienna Jaskinia - sala 1', 6536: 'Kamienna Jaskinia - sala 2', 180: 'Andarum Ilami',
+      6628: 'Zdradzieckie Przejście p.1', 6629: 'Zdradzieckie Przejście p.2', 6634: 'Wylęgarnia Choukkerów p.1',
+      6635: 'Wylęgarnia Choukkerów p.2', 6636: 'Wylęgarnia Choukkerów p.3', 6771: 'Labirynt Margorii',
+      6775: 'Szyb Zdrajców', 6773: 'Margoria', 6772: 'Kopalnia Margorii', 6776: 'Ślepe Wyrobisko',
       140: 'Mroczny Przesmyk', 814: 'Lazurytowa Grota p.1', 815: 'Lazurytowa Grota p.2',
       3869: 'Lazurytowa Grota p.3 - sala 1', 816: 'Lazurytowa Grota p.3 - sala 2',
       176: 'Mokra Grota p.1', 4582: 'Mokra Grota p.1 - przełaz',
@@ -675,6 +724,28 @@
         38: [[53, 0], [54, 0], [55, 0]], 140: [[64, 63], [65, 63], [66, 63]],
         6473: [[53, 15]], 176: [[57, 26]], 6535: [[15, 53]],
       },
+      // Droga Ithan -> Andarum (Opek, Kostek), ustalona z graczem 14.10:
+      // Ithan > Zniszczone Opactwo > Uroczysko > Zapomniany Szlak >
+      // Kamienna Jaskinia sala 1 > sala 2 > Andarum Ilami. Uzywana, gdy nie ma
+      // zwoju teleportu. Kafle z margoworld; przejscia Andarum sprawdzone na
+      // zywo w grze 14.10 (te same co w grafie).
+      6535: { 150: [[40, 20], [41, 20]], 6536: [[15, 48]] },
+      6536: { 6535: [[7, 3]], 180: [[30, 48], [31, 48]] },
+      180: {
+        6536: [[58, 52]], 6608: [[48, 14]], 1387: [[0, 5], [0, 6]], 6628: [[3, 39]], 284: [[7, 18]],
+      },
+      // Mapy Kostka (14.10), z grafu swiata margoworld - zeby powrot pieszo do
+      // Andarum dzialal juz przy pierwszej petli, zanim bot pozna bramy w grze.
+      6628: { 180: [[60, 7]], 6629: [[30, 88]], 6630: [[55, 46]], 6631: [[53, 94]], 6634: [[5, 71]] },
+      6629: { 6628: [[54, 1]], 6771: [[9, 61]] },
+      6634: { 6628: [[45, 62]], 6635: [[48, 42]] },
+      6635: { 6634: [[45, 2]], 6636: [[34, 47]] },
+      6636: { 6635: [[48, 55]] },
+      6771: { 6629: [[91, 1]], 6772: [[5, 60]], 6773: [[6, 10]], 6775: [[65, 61]] },
+      6775: { 3459: [[56, 90]], 6771: [[10, 1]], 7350: [[47, 45]] },
+      6773: { 6771: [[52, 92]], 6772: [[8, 89]] },
+      6772: { 6771: [[53, 13]], 6773: [[23, 10]], 6776: [[7, 83]] },
+      6776: { 1355: [[3, 48]], 6772: [[53, 14]] },
       6473: { 150: [[9, 30]], 6474: [[27, 9]], 6475: [[7, 2]] },
       6474: { 6475: [[5, 11], [5, 12]], 6473: [[15, 62]] },
       6475: { 6473: [[43, 62]], 6474: [[60, 11], [60, 12]] },
@@ -1328,6 +1399,24 @@
     // Nazwa przedmiotu z tip-id. Cache jest po to, zeby nie parsowac
     // tego samego HTML 92 razy co 20 sekund - tresc podpowiedzi nigdy
     // sie nie zmienia.
+    // Numer (item-tpl) przedmiotu z ekwipunku o DOKLADNIE tej nazwie
+    // (bez wielkosci liter i polskich znakow), albo null. Nazwy z podpowiedzi
+    // gry (TIPS.allTips), jak przy zwojach przywolania - worek musi byc
+    // wczytany, tak samo jak dla useItem().
+    przedmiotPoNazwie(nazwa) {
+      const szukana = MAPS.plain(nazwa);
+      if (!szukana) return null;
+      const sloty = document.querySelectorAll('.inventory-item[class*="item-tpl-"]');
+      for (let i = 0; i < sloty.length; i++) {
+        const tipId = sloty[i].getAttribute('tip-id');
+        if (!tipId) continue;
+        if (MAPS.plain(this.nazwaZTipId(tipId)) !== szukana) continue;
+        const m = /item-tpl-([0-9]+)/.exec(String(sloty[i].className || ''));
+        if (m) return Number(m[1]);
+      }
+      return null;
+    },
+
     nazwaZTipId(tipId) {
       if (!tipId) return '';
       const cache = this.tipCache || (this.tipCache = {});
@@ -1505,7 +1594,9 @@
         el.dispatchEvent(new MouseEvent('mouseup', opcje));
         el.dispatchEvent(new MouseEvent('click', opcje));
         el.dispatchEvent(new MouseEvent('dblclick', opcje));
-        el.dispatchEvent(new MouseEvent('contextmenu', opcje));
+        // Bez 'contextmenu': w grze prawy klik na przedmiocie to afterRightClick,
+        // czyli menu "Użyj / Przenieś / ...", ktore zostawalo otwarte po uzyciu
+        // zwoju (test na zywo 14.10). Uzycie robi dwuklik (afterDoubleClick).
       } catch (e) {
         return { ok: false, tpl: t, before: przed, after: przed, powod: 'wyjątek: ' + e.message };
       }
@@ -2378,6 +2469,19 @@
       });
     },
 
+    // Stopka "Swiat | Mapa" jak w powiadomieniach innych dodatkow.
+    stopka(map) {
+      const w = String(GAME.world() || '').trim();
+      const swiat = w ? w.charAt(0).toUpperCase() + w.slice(1) : 'Margonem';
+      return swiat + ' | ' + ((map && map.name) || '?');
+    },
+
+    // "Mapa (x, y)" - bez numeru mapy, ktory nic graczowi nie mowi.
+    miejsce(map, x, y) {
+      const nazwa = (map && map.name) || '?';
+      return (x !== undefined && x !== null) ? nazwa + ' (' + x + ', ' + y + ')' : nazwa;
+    },
+
     send(o) {
       const adres = this.adres();
       if (!adres) {
@@ -2398,9 +2502,11 @@
         fields: (o.fields || []).map(function (f) {
           return { name: String(f.name), value: String(f.value), inline: !!f.inline };
         }),
-        footer: { text: 'Heros Hunter' },
+        footer: { text: o.stopka || 'Heros Hunter' },
         timestamp: new Date().toISOString(),
       };
+      // Obrazek po prawej (np. heros z garmory-cdn) - Discord pobiera go sam.
+      if (o.obrazek) embed.thumbnail = { url: String(o.obrazek) };
       // Adres z tokenem nie trafia ani do logu, ani do konsoli - to sekret.
       // self jest potrzebne, bo w .then() nie ma "this" - tam jest
       // kontekst obietnicy, nie NOTIFY.
@@ -4510,6 +4616,11 @@ const CSS_HEROS_HUNTER = [
         STORE.set({ autoLoginAt: Date.now(), nextRespawnAt: Date.now() + 3000 });
       }
       this.startedAt = Date.now();
+      // Licznik czasu biezacego punktu od nowa. Po Stop/Start albo odswiezeniu
+      // strony stary pointSince byl dawno przeterminowany i bot pomijal resp
+      // bez sprawdzenia ("Timeout respu 61,35" zaraz po Starcie - test na zywo
+      // 14.10, Swiatynia Andarum - biblioteka).
+      if (STORE.data.pointSince) STORE.set({ pointSince: 0 });
       this.setState(GAME.loggedIn() ? 'SCAN' : 'WAIT');
       if (!this.timer) {
         const self = this;
@@ -4541,11 +4652,23 @@ const CSS_HEROS_HUNTER = [
     rememberGraph() {
       const m = GAME.rawMap();
       if (!m || m.id === null) return;
+      // Zapisujemy dopiero mape, ktora utrzymala sie 2 s. Przy przejsciu przez
+      // brame gra potrafi na chwile podac zla mape (14.10: Andarum odczytane
+      // jako "Zapomniany Szlak" 150) - bez tego przejscia Andarum trafialy
+      // do grafu jako przejscia mapy 150 z trasy Przewodnika.
+      const now = Date.now();
+      if (!this.grafMapa || this.grafMapa.id !== m.id) { this.grafMapa = { id: m.id, od: now }; return; }
+      if (now - this.grafMapa.od < 2000) return;
       if (!STORE.data.visited[m.id]) {
         STORE.data.visited[m.id] = m.name;
         LOG.info('Mapa: ' + m.id + ' ' + m.name);
       }
-      STORE.data.graph[m.id] = GAME.gateways();
+      // Pusta lista nie nadpisuje znanych przejsc: gra moze jeszcze nie narysowac
+      // bram tuz po wejsciu, a bez tego mapa tracila przejscia z CONFIG i bot
+      // przestawal znac droge (np. Ithan -> Zniszczone Opactwo, 14.10).
+      const bramy = GAME.gateways();
+      const znane = STORE.data.graph[m.id];
+      if (bramy.length || !(Array.isArray(znane) && znane.length)) STORE.data.graph[m.id] = bramy;
       STORE.save();
       // Nazwa -> numer. Zmierzone 08.10: brama ma nazwe w `tip[0]`, a
       // numer w `d.id`. Skrypt uczy sie pary przy kazdym wejsciu na mape.
@@ -4632,6 +4755,85 @@ const CSS_HEROS_HUNTER = [
       return naj;
     },
 
+    // Czy biezaca mapa jest na trasie herosa albo jest jego baza.
+    naTrasie(map) {
+      if (!map) return false;
+      if (MAPS.isHome(map)) return true;
+      const nazwa = MAPS.plain(map.name);
+      const l = MAPS.all();
+      for (let i = 0; i < l.length; i++) {
+        if (l[i].id !== null && map.id !== null && Number(l[i].id) === Number(map.id)) return true;
+        if (nazwa && MAPS.plain(l[i].nazwaWpisana || l[i].name) === nazwa) return true;
+      }
+      return false;
+    },
+
+    // Zwoj teleportu herosa (cfg.teleport). true = uzyty albo czekamy na
+    // przeniesienie (tick nic wiecej nie robi), false = brak zwoju / limit
+    // prob - wolajacy idzie dalej starym sposobem (Zakonnik, szukanie bram).
+    // Limit: 2 uzycia bez dotarcia na trase - zeby nie spalic zapasu, gdyby
+    // dwuklik nie przenosil (np. worek niewczytany). Zerowany na trasie.
+    uzyjZwojuTeleportu(powod) {
+      const cfg = MAPS.hero();
+      if (!cfg || !cfg.teleport) return false;
+      const tu = MAPS.current();
+      if (!tu || tu.id === null || tu.id === undefined || !GAME.ready()) return false;
+      const now = Date.now();
+      // Mapa poza trasa musi sie POTWIERDZIC: ta sama przez 5 s. Przy przejsciu
+      // przez brame gra potrafi na ulamek sekundy podac zla mape (test na zywo
+      // 14.10: wyjscie z Andarum do Swiatyni odczytane jako "Zapomniany Szlak",
+      // mapa startu sesji) - bot zuzywal wtedy zwoj w srodku trasy.
+      // Prawdziwe "poza trasa" (Ithan, miasto po smierci) trwa dluzej.
+      if (!this.tpMapa || this.tpMapa.id !== tu.id) this.tpMapa = { id: tu.id, od: now };
+      if (now - this.tpMapa.od < 5000) {
+        UI.set('resp', 'poza trasą (' + (tu.name || tu.id) + ') - sprawdzam');
+        return true;
+      }
+      if (this.zwojTpOd && now - this.zwojTpOd < 20000) {
+        UI.set('resp', 'teleport: czekam na przeniesienie');
+        return true;
+      }
+      if ((this.zwojTpProby || 0) >= 2) {
+        if (!this.zwojTpLimitZgloszony) {
+          this.zwojTpLimitZgloszony = true;
+          LOG.warn('"' + cfg.teleport + '" użyty 2 razy bez przeniesienia - przestaję go używać, '
+            + 'dopóki nie trafię na trasę. Sprawdź, czy worek z przedmiotami jest wczytany.');
+        }
+        return false;
+      }
+      const tpl = GAME.przedmiotPoNazwie(cfg.teleport);
+      if (!tpl) {
+        if (!this.zwojTpBrakZgloszony) {
+          this.zwojTpBrakZgloszony = true;
+          LOG.warn('Nie widzę "' + cfg.teleport + '" w ekwipunku (' + powod + '). Otwórz worek albo dołóż zwój.');
+        }
+        return false;
+      }
+      const w = GAME.useItem(tpl);
+      if (!w.ok) {
+        LOG.warn('"' + cfg.teleport + '" nie zadziałał: ' + w.powod + '.');
+        return false;
+      }
+      this.zwojTpOd = now;
+      this.zwojTpProby = (this.zwojTpProby || 0) + 1;
+      this.zwojTpBrakZgloszony = false;
+      this.path = null;
+      this.pathIdx = 0;
+      this.resetGo();
+      GAME.stopWalk();
+      LOG.ok('Używam "' + cfg.teleport + '" (' + powod + ').');
+      return true;
+    },
+
+    // Na trasie - zwoj zadzialal albo bot doszedl sam. Zerujemy licznik.
+    zwojTeleportuNaTrasie() {
+      this.tpMapa = null;
+      if (!this.zwojTpOd && !this.zwojTpProby) return;
+      this.zwojTpOd = 0;
+      this.zwojTpProby = 0;
+      this.zwojTpLimitZgloszony = false;
+    },
+
     // Czy teleport ma sens. Tylko gdy NIE da sie dojsc pieszo ani do celu
     // (to sprawdzil juz wywolujacy), ani do bazy herosa. Zwraca true, gdy
     // teleport zostal zaplanowany - wtedy tick przejmuje teleportTick().
@@ -4641,6 +4843,8 @@ const CSS_HEROS_HUNTER = [
       if (!cel) return false;
       if (MAPS.isHome(MAPS.current())) return false;
       if (baza.id !== null && baza.id !== undefined && this.pathTo(baza.id)) return false;
+      // Heros ma wlasny zwoj teleportu do bazy - prosciej niz Zakonnik.
+      if (this.uzyjZwojuTeleportu(powod)) return true;
       if (this.tpPrzerwaDo && Date.now() < this.tpPrzerwaDo) return false;
       this.tp = { cel: cel, od: Date.now(), etap: 'dojscie', ostatniaRozmowa: 0, proby: 0, wybrano: 0 };
       this.path = null;
@@ -5610,7 +5814,11 @@ const CSS_HEROS_HUNTER = [
         this.setState('GO');
         return;
       }
-      if (MAPS.isHome(map) || map.entry.pass) { this.nextMap(); return; }
+      // Baza bez respow (Ithan Przewodnika, Eder Zlodzieja) - tylko przejscie.
+      // Baza Z respami w trasie (Andarum Ilami Opka, 14.10) jest skanowana
+      // jak kazda inna mapa - wczesniej jej 4 respy byly zawsze pomijane.
+      const respyWBazie = !!(map.entry.spawns && map.entry.spawns.length);
+      if (map.entry.pass || (MAPS.isHome(map) && !respyWBazie)) { this.nextMap(); return; }
 
       const list = this.spawnsOn(map);
       if (!list.length) {
@@ -5740,8 +5948,12 @@ const CSS_HEROS_HUNTER = [
         // Powrot do BAZY herośw, nie zawsze do Ithan. Zlodziej mieszka
         // w Eder i stamtąd zaczyna pętlę (zadanie gracza 08.10).
         const baza = MAPS.home();
+        // Heros z powrotem zwojem (Kostek) wraca przez goHome() zawsze - tam
+        // najpierw zwoj do bazy, bez zwoju pieszo. Bez tego, gdy baza jest tez
+        // pierwszym krokiem (Andarum), koniec petli szedl od razu pieszo.
+        const zwojem = !!(MAPS.hero() && MAPS.hero().powrotZwojem);
         const doBazy = baza && baza.id !== null && baza.id !== undefined
-          && Number(all[0].id) !== Number(baza.id);
+          && (Number(all[0].id) !== Number(baza.id) || zwojem);
         LOG.ok('Trasa ' + (MAPS.hero() ? MAPS.hero().nazwa : '') +
           ' obejdzie - ' + (doBazy
             ? 'wracam do ' + (baza.nazwa || baza.name) + ' i zaczynam od ' + all[0].name + '.'
@@ -5866,6 +6078,27 @@ const CSS_HEROS_HUNTER = [
       const all = MAPS.all();
       const idx = STORE.data.routeIndex || 0;
       let step = MAPS.stepAt(idx);
+
+      // Heros ze zwojem teleportu (Opek, Kostek): poza trasa - np. start
+      // w Ithanie albo pobudka po smierci w innym miescie - nie szukamy drogi
+      // pieszo, tylko teleportujemy sie do bazy i zaczynamy od poczatku.
+      // Tylko na WCZYTANEJ mapie. W chwili przejscia gra przez moment nie
+      // podaje mapy (id null, nazwa '???') - wtedy bot uznawal, ze jest poza
+      // trasa, i zuzywal zwoj w trakcie zwyklego przejscia Skaly -> Andarum
+      // (test na zywo 14.10).
+      const mapaZnana = !!map && map.id !== null && map.id !== undefined && GAME.ready();
+      if (this.naTrasie(map)) {
+        this.zwojTeleportuNaTrasie();
+      } else if (mapaZnana && MAPS.hero() && MAPS.hero().teleport) {
+        if (this.zwojTpOd && Date.now() - this.zwojTpOd < 20000) {
+          UI.set('resp', 'teleport: czekam na przeniesienie');
+          return;
+        }
+        if (this.uzyjZwojuTeleportu('poza trasą: ' + ((map && map.name) || '?'))) {
+          if (idx !== 0) this.newRun();
+          return;
+        }
+      }
 
       // Krok po nazwie, ktorego skrypt jeszcze nie umie odwadzic.
       // stepAt() zwraca wtedy null, a stary kod cofal routeIndex do 0
@@ -6216,16 +6449,29 @@ const CSS_HEROS_HUNTER = [
       LOG.ok(kto + ' znaleziony na ' + MAPS.label(map) +
         ' @' + (hero ? hero.x + ',' + hero.y : '?'));
 
+      // Wyglad jak w powiadomieniach innych dodatkow (ustalone 14.10):
+      // Nazwa / Lokalizacja / Poziom, obrazek herosa, linijka do skopiowania,
+      // stopka "Swiat | Mapa". Poziom z danych NPC gry (d.lvl) - jesli gra
+      // go nie poda, pole sie nie pojawia.
+      const lvl = hero && Number(hero.lvl) > 0 ? Number(hero.lvl) : null;
+      const gdzie = NOTIFY.miejsce(map, hero && hero.x, hero && hero.y);
+      const polaZnal = [
+        { name: 'Nazwa', value: kto, inline: true },
+        { name: 'Lokalizacja', value: gdzie, inline: true },
+      ];
+      if (lvl) polaZnal.push({ name: 'Poziom', value: lvl + ' lvl', inline: true });
+      polaZnal.push({
+        name: 'Informacja do skopiowania',
+        value: '```Znaleziono Herosa! ' + kto + (lvl ? ' (' + lvl + 'lvl)' : '') + ' na mapie ' + gdzie + '```',
+        inline: false,
+      });
       NOTIFY.send({
         pingWszystkich: true,
-        title: 'Znaleziono ' + kto,
-        description: 'Bot stoi obok i czeka na drużynę.',
+        title: 'Znaleziono Herosa!',
         color: 0x22a06b,
-        fields: [
-          { name: 'Mapa', value: MAPS.label(map), inline: true },
-          { name: 'Kordy', value: hero ? hero.x + ', ' + hero.y : '?', inline: true },
-          { name: 'Godzina', value: new Date().toLocaleTimeString('pl-PL'), inline: true },
-        ],
+        fields: polaZnal,
+        obrazek: cfg.img,
+        stopka: NOTIFY.stopka(map),
       });
 
       // Ogłoszenie na czacie klanowym. Bez niego nikt poza toba nie wie,
@@ -6417,15 +6663,23 @@ const CSS_HEROS_HUNTER = [
       STORE.set({ killed: (STORE.data.killed || 0) + 1 });
       LOG.ok(cfg.nazwa + ' ZABITY! (nasza walka: ' + ile + ' min)');
 
+      // Ten sam styl co "Znaleziono", bez pingu (ustalone 14.10).
+      // Resp od = chwila zabicia + oficjalny najkrotszy resp herosa.
+      const respOd = Number(cfg.respMinMin) > 0 ? new Date(now + Number(cfg.respMinMin) * 60000) : null;
+      const godzina = function (d) { return d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }); };
+      const polaZab = [
+        { name: 'Nazwa', value: cfg.nazwa, inline: true },
+        { name: 'Lokalizacja', value: NOTIFY.miejsce(map), inline: true },
+        { name: 'Zabity o', value: godzina(new Date(now)), inline: true },
+      ];
+      if (respOd) polaZab.push({ name: 'Resp od', value: godzina(respOd), inline: true });
       NOTIFY.send({
-        title: 'Zabito ' + cfg.nazwa,
+        title: 'Zabito Herosa!',
         description: 'Wracam do ' + (cfg.baza || CONFIG.HOME.name) + ' i czekam na respawn.',
         color: 0xdc2626,
-        fields: [
-          { name: 'Mapa', value: MAPS.label(map), inline: true },
-          { name: 'Walka', value: ile + ' min', inline: true },
-          { name: 'Godzina', value: new Date().toLocaleTimeString('pl-PL'), inline: true },
-        ],
+        fields: polaZab,
+        obrazek: cfg.img,
+        stopka: NOTIFY.stopka(map),
       });
 
       this.walkaKoniec();
@@ -6617,6 +6871,13 @@ const CSS_HEROS_HUNTER = [
         GAME.logout();
         return;
       }
+      // Heros z powrotem zwojem (Kostek, 14.10): koniec petli daleko od bazy,
+      // wiec najpierw zwoj do bazy, a bez zwoju dopiero pieszo. Tylko zanim
+      // ruszymy pieszo - wyznaczonej drogi nie przerywamy.
+      const cfgPowrot = MAPS.hero();
+      if (cfgPowrot && cfgPowrot.powrotZwojem && !(this.path && this.path.length)
+          && this.uzyjZwojuTeleportu('powrót do ' + ((MAPS.home() && MAPS.home().nazwa) || 'bazy'))) return;
+
       // Jesli mamy juz wyznaczona droge do Ithanu - lezymy ja krok za krokiem.
       // WAZNE: goToMap() tylko WYZNACZA sciezke, nie idzie nia. Bez tego
       // bloku bot liczyl trasę co 20 s i stal w miejscu (znalezione 14:00

@@ -63,3 +63,6 @@ Thumbs.db
 .DS_Store
 .vscode/
 .idea/
+
+# Lokalna wersja testowa (pelny plik bez @require)
+Heros Hunter TEST.user.js
