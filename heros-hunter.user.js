@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Heros Hunter
 // @namespace    https://github.com/cvvel67/heros-hunter
-// @version      1.1
+// @version      1.2
 // @description  szuka heros
-// @icon         https://cdn.jsdelivr.net/gh/cvvel67/heros-hunter@v1.1/assets/ikona.png
+// @icon         https://cdn.jsdelivr.net/gh/cvvel67/heros-hunter@v1.2/assets/ikona.png
 // @updateURL    https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @downloadURL  https://raw.githubusercontent.com/cvvel67/heros-hunter/main/heros-hunter.user.js
 // @match        https://margonem.pl/*
@@ -14,5 +14,5 @@
 // @grant        GM_getValue
 // @grant        unsafeWindow
 // @run-at       document-idle
-// @require      https://cdn.jsdelivr.net/gh/cvvel67/heros-hunter@v1.1/src/heros-hunter.js#sha256=712ace6606fceb5d5a7a3aa46b10081023956360a19426645c43f7e1d2f1790c
+// @require      https://cdn.jsdelivr.net/gh/cvvel67/heros-hunter@v1.2/src/heros-hunter.js#sha256=cd3cdc7d69cdbe461d3ce08859aaf862d20cd7a37186c8ce9dc5a0a173387474
 // ==/UserScript==

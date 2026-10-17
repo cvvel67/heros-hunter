@@ -115,7 +115,7 @@
   // mowiła na sztywno "Heros Hunter v3" - ze zrzutu ekranu nie dało
   // się odróżnić 3.5 od 3.7, a bez tego każdy test jest dwuznaczny.
   // _verifyConfig.js pilnuje, żeby to zgadzało się z @version.
-  const WERSJA = '1.1';
+  const WERSJA = '1.2';
 
   /* =====================================================================
    *  1. CONFIG
@@ -2659,6 +2659,8 @@ const CSS_HEROS_HUNTER = [
   // .hh-foot - inaczej Alt+H zmienia tylko znaczek, a panel zostaje
   // tej samej wysokosci.
   '#hh-panel.min .hh-body,#hh-panel.min .hh-foot{display:none;}',
+  // Schowany widgetem gry (UI.przełączWidok) - caly panel, nie tylko tresc.
+  '#hh-panel.hh-ukryty{display:none!important;}',
 
   /* ===================================================================== */
   /*  NAGLOWEK - jeden blok dla panelu i trzech okien                       */
@@ -3435,6 +3437,7 @@ const CSS_HEROS_HUNTER = [
       head.appendChild(min);
 
       this.minBtn = min;
+      if (STORE.data.uiUkryty) box.classList.add('hh-ukryty');
       if (STORE.data.uiMin) {
         box.classList.add('min');
         min.textContent = '+';
@@ -3721,6 +3724,83 @@ const CSS_HEROS_HUNTER = [
         b.setAttribute('aria-expanded', zwin ? 'false' : 'true');
       }
       STORE.set({ uiMin: zwin });
+    },
+
+    /* ---------------------------------------------------------------
+     *  WIDGET W PASKU GRY - pokazuje / chowa caly panel
+     *
+     *  Ten sam standard co Kopalnia i Ulepy: przycisk dodany natywnym
+     *  hakiem dodatkow `Engine.widgetManager`, wiec gra sama buduje go
+     *  z szablonu widget-button (klasy, rozmiar, tooltip, przeciaganie):
+     *    addKeyToDefaultWidgetSet(key, index, pos, txt, type, clb)
+     *    createOneWidget(key, store, ...) - store[key] = [index, pos]
+     *  Slot po przeciagnieciu gra zapisuje sama w serverStorage
+     *  (hotWidget_*.heroshunter); przy starcie wracamy w to miejsce.
+     *  Stan (pokazany/schowany) w magazynie, jak uiMin.
+     * ------------------------------------------------------------- */
+
+    WIDGET: 'heroshunter',
+    WIDGET_IKONA: 'https://micc.garmory-cdn.cloud/obrazki/npc/her/zulek.gif',
+
+    przełączWidok() {
+      const ukryty = !STORE.data.uiUkryty;
+      STORE.set({ uiUkryty: ukryty });
+      const box = document.getElementById('hh-panel');
+      if (box) box.classList.toggle('hh-ukryty', ukryty);
+      this.zainstalujWidget();
+    },
+
+    zainstalujWidget() {
+      const wm = Engine.widgetManager;
+      if (!wm || !wm.addKeyToDefaultWidgetSet || !wm.createOneWidget || !wm.getWidgetsSlots) return;
+      if (wm.getWidgetLoaded && !wm.getWidgetLoaded()) return;
+      const klucz = this.WIDGET;
+      let btn = document.querySelector('.widget-' + klucz);
+      if (!btn) {
+        const sloty = (wm.getWidgetsSlots() || {}).widgets || {};
+        const prawo = sloty['top-right'] || [];
+        let zapis = null;
+        try {
+          const st = Engine.serverStorage;
+          const wszystkie = st && st.get && wm.getPathToHotWidgetVersion ? st.get(wm.getPathToHotWidgetVersion()) : null;
+          zapis = wszystkie ? wszystkie[klucz] : null;
+        } catch (e) { /* brak zapisu = domyslne miejsce */ }
+        const wolny = Array.isArray(zapis) && sloty[zapis[1]] && sloty[zapis[1]][zapis[0]] === '';
+        let poz = wolny ? String(zapis[1]) : 'top-right';
+        let nr = wolny ? Number(zapis[0]) : (prawo[1] === '' ? 1 : prawo.indexOf(''));
+        if (nr < 0) {
+          const pierwszy = wm.getFirstEmptyWidgetSlot && wm.getFirstEmptyWidgetSlot();
+          if (!pierwszy) return;
+          poz = pierwszy.container;
+          nr = pierwszy.slot;
+        }
+        const self = this;
+        const sklad = {};
+        sklad[klucz] = [nr, poz];
+        wm.addKeyToDefaultWidgetSet(klucz, nr, poz, 'Heros Hunter', 'green', function () { self.przełączWidok(); });
+        wm.createOneWidget(klucz, sklad, true, []);
+        btn = document.querySelector('.widget-' + klucz);
+        if (!btn) return;
+      }
+      const ik = btn.querySelector('.icon');
+      if (ik && !ik.dataset.hh) {
+        ik.dataset.hh = '1';
+        // Sprite NPC ma 32x48, a ikona 30x30 - skalowanie calej postaci
+        // dawalo nierowne, rozmyte piksele. Rozmiar 1:1, kadr na glowe
+        // i tulow (jak awatar herosa w panelu).
+        ik.style.cssText += ';background:url("' + this.WIDGET_IKONA + '") center 2px / 32px 48px no-repeat;image-rendering:pixelated';
+      }
+      // Podswietlony jak natywne widgety, gdy ich okno jest otwarte.
+      btn.classList.toggle('window-is-open', !STORE.data.uiUkryty);
+    },
+
+    /* Gra laduje pasek widgetow pozniej niz skrypt i potrafi go
+     * przebudowac - sprawdzamy co 2 s i w razie potrzeby dodajemy
+     * widget ponownie. */
+    startWidget() {
+      const self = this;
+      self.zainstalujWidget();
+      setInterval(function () { self.zainstalujWidget(); }, 2000);
     },
 
     /* ---------------------------------------------------------------
@@ -7868,6 +7948,8 @@ const CSS_HEROS_HUNTER = [
     // mial juz panel do odswiezenia chipow. Wlasny interwal 20 s,
     // niezalezny od BOT.timer - dziala takze przy zatrzymanym bocie.
     GAME.startZwoje();
+
+    UI.startWidget();
 
     document.addEventListener('keydown', function (e) {
       // Esc tylko gdy jest co zamknac. Bez tego blokowaloby Escape
